@@ -7,3 +7,5 @@ models/
 .env
 
 reports/figures/
+
+reports/*.csv
