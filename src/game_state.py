@@ -49,20 +49,18 @@ def calculate_game_seconds_remaining(period: int, clock: str) -> int:
     return seconds_in_current_period
 
 
-def clean_score(value) -> int:
-    """
-    Converts score values into integers.
-    Some early rows may have missing scores, so we treat missing as 0.
-    """
-    if pd.isna(value) or value == "":
-        return 0
-
-    return int(float(value))
-
-
 def build_game_state(input_path: Path) -> pd.DataFrame:
     """
     Converts raw NBA play-by-play rows into model-ready game-state rows.
+
+    Important:
+    NBA play-by-play rows do not always repeat the score on every event.
+    Some non-scoring events have blank scoreHome/scoreAway values.
+
+    Correct approach:
+    - Convert scoreHome/scoreAway to numeric.
+    - Forward-fill the last known score.
+    - Fill early missing values as 0.
     """
     df = pd.read_csv(input_path, dtype={"gameId": str})
 
@@ -98,8 +96,25 @@ def build_game_state(input_path: Path) -> pd.DataFrame:
         axis=1,
     )
 
-    game_state["home_score"] = df["scoreHome"].apply(clean_score)
-    game_state["away_score"] = df["scoreAway"].apply(clean_score)
+    # Correct score handling:
+    # NBA API often leaves score blank on non-scoring events.
+    # Forward fill keeps the current game score accurate at every event.
+    score_home = (
+        pd.to_numeric(df["scoreHome"], errors="coerce")
+        .ffill()
+        .fillna(0)
+        .astype(int)
+    )
+
+    score_away = (
+        pd.to_numeric(df["scoreAway"], errors="coerce")
+        .ffill()
+        .fillna(0)
+        .astype(int)
+    )
+
+    game_state["home_score"] = score_home
+    game_state["away_score"] = score_away
 
     game_state["score_margin_home"] = (
         game_state["home_score"] - game_state["away_score"]
@@ -149,8 +164,21 @@ def main() -> None:
     print(f"Saved processed game-state file to: {output_path}")
     print(f"Rows: {len(game_state)}")
     print(f"Columns: {list(game_state.columns)}")
+
     print("\nFirst 5 rows:")
     print(game_state.head())
+
+    print("\nFinal score:")
+    print(
+        game_state[
+            [
+                "home_score",
+                "away_score",
+                "score_margin_home",
+                "home_won",
+            ]
+        ].tail(1)
+    )
 
 
 if __name__ == "__main__":
