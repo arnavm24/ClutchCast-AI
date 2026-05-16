@@ -8,6 +8,26 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+IGNORED_EVENT_KEYWORDS = [
+    "timeout",
+    "sub:",
+    "violation: delay",
+    "jump ball",
+    "start period",
+    "end period",
+    "instant replay",
+]
+
+FOUL_ONLY_KEYWORDS = [
+    "p.foul",
+    "s.foul",
+    "personal foul",
+    "shooting foul",
+    "offensive foul",
+    "loose ball foul",
+]
+
+
 def load_comeback_metrics() -> pd.DataFrame:
     """
     Loads the comeback metrics file.
@@ -30,6 +50,41 @@ def load_comeback_metrics() -> pd.DataFrame:
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
+def is_ignored_event(description: str) -> bool:
+    """
+    Returns True for events that should not be treated as major basketball
+    momentum events, such as timeouts and substitutions.
+    """
+    desc = str(description).lower()
+
+    return any(keyword in desc for keyword in IGNORED_EVENT_KEYWORDS)
+
+
+def is_foul_only_event(description: str) -> bool:
+    """
+    Returns True for foul events that should be down-weighted unless the
+    play also includes a made/missed shot or free throw context.
+    """
+    desc = str(description).lower()
+
+    has_shot_context = any(
+        keyword in desc
+        for keyword in [
+            "free throw",
+            "jump shot",
+            "layup",
+            "dunk",
+            "hook shot",
+            "tip shot",
+            "floating jump shot",
+        ]
+    )
+
+    has_foul = any(keyword in desc for keyword in FOUL_ONLY_KEYWORDS)
+
+    return has_foul and not has_shot_context
+
+
 def classify_event_value(description: str) -> int:
     """
     Gives a simple event value based on the play description.
@@ -41,40 +96,63 @@ def classify_event_value(description: str) -> int:
     """
     desc = str(description).lower()
 
-    if "turnover" in desc:
-        return -3
+    if is_ignored_event(desc):
+        return 0
 
-    if "miss" in desc:
+    if is_foul_only_event(desc):
         return -1
 
-    if "3pt" in desc and "miss" not in desc:
+    if "turnover" in desc:
+        return -4
+
+    if "steal" in desc:
         return 4
+
+    if "block" in desc:
+        return 3
+
+    if "3pt" in desc and "miss" not in desc:
+        return 5
+
+    if "dunk" in desc and "miss" not in desc:
+        return 4
+
+    if "layup" in desc and "miss" not in desc:
+        return 3
+
+    if "jump shot" in desc and "miss" not in desc:
+        return 3
+
+    if "hook shot" in desc and "miss" not in desc:
+        return 2
 
     if "free throw" in desc and "miss" not in desc:
         return 1
 
-    if any(word in desc for word in ["layup", "dunk", "jump shot", "hook shot"]):
-        if "miss" not in desc:
-            return 2
-
-    if "steal" in desc:
-        return 3
-
-    if "block" in desc:
-        return 2
+    if "miss" in desc:
+        return -2
 
     if "rebound" in desc and "off:" in desc:
         return 2
+
+    if "rebound" in desc:
+        return 1
 
     return 0
 
 
 def add_event_value(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds a simple event_value column from the play description.
+    Adds event-value and event-filter columns from the play description.
     """
     output = df.copy()
+
+    output["is_ignored_momentum_event"] = output["event_description"].apply(
+        is_ignored_event
+    )
+
     output["event_value"] = output["event_description"].apply(classify_event_value)
+
     return output
 
 
@@ -106,7 +184,7 @@ def add_recent_wp_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
 
 def add_recent_event_value(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
     """
-    Calculates rolling recent event value.
+    Calculates rolling recent event value over the last N events.
     """
     output = df.copy()
 
@@ -183,9 +261,21 @@ def add_hidden_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
 def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     """
     Finds moments where hidden momentum is strongest.
+
+    This report filters out timeout/substitution-type events so the dashboard
+    focuses on actual basketball actions.
     """
     output = df.copy()
+
     output["abs_hidden_momentum"] = output["hidden_momentum_score"].abs()
+
+    report_candidates = output[
+        (output["is_ignored_momentum_event"] == False)
+        & (output["event_value"] != 0)
+    ].copy()
+
+    if report_candidates.empty:
+        report_candidates = output.copy()
 
     columns = [
         "period",
@@ -197,13 +287,14 @@ def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFra
         "recent_margin_change",
         "recent_wp_change_pct",
         "recent_event_value",
+        "event_value",
         "hidden_momentum_score",
         "momentum_label",
         "event_description",
     ]
 
     return (
-        output.sort_values("abs_hidden_momentum", ascending=False)
+        report_candidates.sort_values("abs_hidden_momentum", ascending=False)
         [columns]
         .head(top_n)
         .reset_index(drop=True)
