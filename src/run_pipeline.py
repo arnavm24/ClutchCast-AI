@@ -1,3 +1,4 @@
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -6,28 +7,69 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-PIPELINE_STEPS = [
-    ("Load NBA play-by-play data", "src/load_data.py"),
-    ("Build game-state table", "src/game_state.py"),
-    ("Generate baseline win probability", "src/train_baseline.py"),
-    ("Create win probability chart", "src/predict_game.py"),
-    ("Add clutch pressure features", "src/features.py"),
-    ("Build comeback reality meter", "src/comeback_meter.py"),
-    ("Calculate hidden momentum", "src/momentum.py"),
-    ("Calculate player swing impact", "src/player_impact.py"),
-    ("Find turning points", "src/turning_points.py"),
-    ("Generate post-game recap", "src/recap.py"),
-]
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the full ClutchCast AI pipeline."
+    )
+
+    parser.add_argument(
+        "--game-id",
+        type=str,
+        default=None,
+        help="Specific NBA game ID to analyze, example: 0022301188.",
+    )
+
+    parser.add_argument(
+        "--season",
+        type=str,
+        default="2023-24",
+        help="NBA season to search if no game ID is provided, example: 2023-24.",
+    )
+
+    parser.add_argument(
+        "--season-type",
+        type=str,
+        default="Regular Season",
+        choices=["Regular Season", "Playoffs", "Pre Season", "All Star"],
+        help="Season type to search if no game ID is provided.",
+    )
+
+    return parser.parse_args()
 
 
-def run_step(step_name: str, script_path: str) -> None:
+def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    load_command = ["src/load_data.py"]
+
+    if args.game_id:
+        load_command.extend(["--game-id", args.game_id])
+    else:
+        load_command.extend(["--season", args.season])
+        load_command.extend(["--season-type", args.season_type])
+
+    return [
+        ("Load NBA play-by-play data", load_command),
+        ("Build game-state table", ["src/game_state.py"]),
+        ("Generate baseline win probability", ["src/train_baseline.py"]),
+        ("Create win probability chart", ["src/predict_game.py"]),
+        ("Add clutch pressure features", ["src/features.py"]),
+        ("Build comeback reality meter", ["src/comeback_meter.py"]),
+        ("Calculate hidden momentum", ["src/momentum.py"]),
+        ("Calculate player swing impact", ["src/player_impact.py"]),
+        ("Find turning points", ["src/turning_points.py"]),
+        ("Generate post-game recap", ["src/recap.py"]),
+    ]
+
+
+def run_step(step_name: str, command_parts: list[str]) -> None:
+    command = [sys.executable] + command_parts
+
     print("\n" + "=" * 80)
     print(f"Running: {step_name}")
-    print(f"Script: {script_path}")
+    print(f"Command: {' '.join(command_parts)}")
     print("=" * 80)
 
     result = subprocess.run(
-        [sys.executable, script_path],
+        command,
         cwd=PROJECT_ROOT,
         text=True,
     )
@@ -39,10 +81,13 @@ def run_step(step_name: str, script_path: str) -> None:
 
 
 def main() -> None:
+    args = parse_args()
+    pipeline_steps = build_pipeline_steps(args)
+
     print("\nStarting ClutchCast AI full pipeline...")
 
-    for step_name, script_path in PIPELINE_STEPS:
-        run_step(step_name, script_path)
+    for step_name, command_parts in pipeline_steps:
+        run_step(step_name, command_parts)
 
     print("\n" + "=" * 80)
     print("Pipeline complete.")
