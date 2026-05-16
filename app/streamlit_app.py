@@ -119,24 +119,26 @@ def apply_custom_css() -> None:
     )
 
 
-def load_latest_csv(folder: Path, pattern: str) -> pd.DataFrame:
-    files = list(folder.glob(pattern))
+def load_csv(folder: Path, filename: str) -> pd.DataFrame:
+    path = folder / filename
 
-    if not files:
-        st.error(f"Missing required file: `{folder / pattern}`")
-        st.info("Run the project pipeline scripts first, then refresh the dashboard.")
+    if not path.exists():
+        st.error(f"Missing required file: `{path}`")
+        st.info("Run the project pipeline for this game first, then refresh the dashboard.")
         st.stop()
 
-    return pd.read_csv(files[0], dtype={"game_id": str})
+    return pd.read_csv(path, dtype={"game_id": str})
 
 
-def load_latest_text(folder: Path, pattern: str) -> str:
-    files = list(folder.glob(pattern))
+def get_available_game_ids() -> list[str]:
+    files = list(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
 
-    if not files:
-        return "No recap file found. Run `python src/recap.py` first."
+    game_ids = [
+        file.stem.replace("baseline_predictions_", "")
+        for file in files
+    ]
 
-    return files[0].read_text(encoding="utf-8")
+    return sorted(game_ids)
 
 
 @st.cache_data(show_spinner=False)
@@ -164,17 +166,21 @@ def get_team_labels(game_id: str) -> tuple[str, str]:
 
 
 @st.cache_data
-def load_dashboard_data():
-    predictions = load_latest_csv(PROCESSED_DIR, "baseline_predictions_*.csv")
-    features = load_latest_csv(PROCESSED_DIR, "features_*.csv")
-    momentum = load_latest_csv(PROCESSED_DIR, "momentum_*.csv")
+def load_dashboard_data(game_id: str) -> dict:
+    predictions = load_csv(PROCESSED_DIR, f"baseline_predictions_{game_id}.csv")
+    features = load_csv(PROCESSED_DIR, f"features_{game_id}.csv")
+    momentum = load_csv(PROCESSED_DIR, f"momentum_{game_id}.csv")
 
-    turning_points = load_latest_csv(REPORTS_DIR, "turning_points_*.csv")
-    player_impact = load_latest_csv(REPORTS_DIR, "player_impact_*.csv")
-    comeback_report = load_latest_csv(REPORTS_DIR, "comeback_report_*.csv")
-    momentum_report = load_latest_csv(REPORTS_DIR, "momentum_report_*.csv")
+    turning_points = load_csv(REPORTS_DIR, f"turning_points_{game_id}.csv")
+    player_impact = load_csv(REPORTS_DIR, f"player_impact_{game_id}.csv")
+    comeback_report = load_csv(REPORTS_DIR, f"comeback_report_{game_id}.csv")
+    momentum_report = load_csv(REPORTS_DIR, f"momentum_report_{game_id}.csv")
 
-    recap = load_latest_text(REPORTS_DIR, "post_game_recap_*.md")
+    recap_path = REPORTS_DIR / f"post_game_recap_{game_id}.md"
+    if recap_path.exists():
+        recap = recap_path.read_text(encoding="utf-8")
+    else:
+        recap = "No recap file found. Run `python src/recap.py` first."
 
     return {
         "predictions": predictions,
@@ -256,6 +262,7 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "recent_margin_change": "Recent Margin Change",
         "recent_wp_change_pct": "Recent Win Prob. Change",
         "recent_event_value": "Recent Event Value",
+        "event_value": "Event Value",
         "hidden_momentum_score": "Momentum Score",
         "momentum_label": "Momentum Label",
     }
@@ -607,7 +614,24 @@ def show_recap(
 def main() -> None:
     apply_custom_css()
 
-    data = load_dashboard_data()
+    available_game_ids = get_available_game_ids()
+
+    if not available_game_ids:
+        st.error("No analyzed games found.")
+        st.info("Run `python src/run_pipeline.py --game-id YOUR_GAME_ID` first.")
+        st.stop()
+
+    with st.sidebar:
+        st.markdown("## 🏀 ClutchCast AI")
+        st.caption("Premium NBA game intelligence engine")
+        st.divider()
+        selected_game_id = st.selectbox(
+            "Select analyzed game",
+            available_game_ids,
+            index=len(available_game_ids) - 1,
+        )
+
+    data = load_dashboard_data(selected_game_id)
 
     predictions = data["predictions"]
     features = data["features"]
@@ -621,8 +645,6 @@ def main() -> None:
     home_team, away_team = get_team_labels(game_id)
 
     with st.sidebar:
-        st.markdown("## 🏀 ClutchCast AI")
-        st.caption("Premium NBA game intelligence engine")
         st.divider()
         st.markdown(f"**Matchup:** {away_team} at {home_team}")
         st.markdown(f"**Game ID:** `{game_id}`")
