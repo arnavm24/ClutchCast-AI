@@ -9,3 +9,5 @@ models/
 reports/figures/
 
 reports/*.csv
+
+reports/*.md
