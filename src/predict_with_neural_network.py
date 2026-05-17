@@ -6,22 +6,11 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+from model_features import build_model_features
+
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
-
-
-FEATURE_COLUMNS = [
-    "period",
-    "seconds_remaining",
-    "home_score",
-    "away_score",
-    "score_margin_home",
-    "abs_score_margin",
-    "total_score",
-    "is_4th_quarter",
-    "is_clutch_time",
-]
 
 
 class WinProbabilityNeuralNetwork(nn.Module):
@@ -29,18 +18,45 @@ class WinProbabilityNeuralNetwork(nn.Module):
         super().__init__()
 
         self.network = nn.Sequential(
-            nn.Linear(input_size, 32),
+            nn.Linear(input_size, 64),
+            nn.ReLU(),
+            nn.Dropout(0.20),
+
+            nn.Linear(64, 32),
             nn.ReLU(),
             nn.Dropout(0.15),
+
             nn.Linear(32, 16),
             nn.ReLU(),
             nn.Dropout(0.10),
+
             nn.Linear(16, 1),
             nn.Sigmoid(),
         )
 
     def forward(self, x):
         return self.network(x)
+
+
+def load_model_feature_columns() -> list[str]:
+    feature_path = MODELS_DIR / "pytorch_model_features.txt"
+
+    if not feature_path.exists():
+        raise FileNotFoundError(
+            "No PyTorch feature list found. Run:\n"
+            "python src/train_neural_network.py"
+        )
+
+    feature_columns = [
+        line.strip()
+        for line in feature_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    if not feature_columns:
+        raise ValueError("PyTorch feature list is empty.")
+
+    return feature_columns
 
 
 def load_model_and_scaler():
@@ -60,8 +76,10 @@ def load_model_and_scaler():
         )
 
     checkpoint = torch.load(model_path, map_location="cpu")
+    input_size = checkpoint.get("input_size")
 
-    input_size = checkpoint.get("input_size", len(FEATURE_COLUMNS))
+    if input_size is None:
+        raise ValueError("Saved PyTorch checkpoint is missing input_size.")
 
     model = WinProbabilityNeuralNetwork(input_size=input_size)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -89,7 +107,7 @@ def load_game_state(game_id: str | None = None) -> pd.DataFrame:
         print(f"Loading game-state file: {input_path}")
         return pd.read_csv(input_path, dtype={"game_id": str})
 
-    files = list(PROCESSED_DIR.glob("game_state_*.csv"))
+    files = sorted(PROCESSED_DIR.glob("game_state_*.csv"))
 
     if not files:
         raise FileNotFoundError(
@@ -103,8 +121,8 @@ def load_game_state(game_id: str | None = None) -> pd.DataFrame:
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
-def validate_features(df: pd.DataFrame) -> None:
-    missing = [col for col in FEATURE_COLUMNS if col not in df.columns]
+def validate_features(df: pd.DataFrame, feature_columns: list[str]) -> None:
+    missing = [col for col in feature_columns if col not in df.columns]
 
     if missing:
         raise ValueError(f"Missing required feature columns: {missing}")
@@ -114,12 +132,16 @@ def add_neural_predictions(
     game_state: pd.DataFrame,
     model: WinProbabilityNeuralNetwork,
     scaler,
+    feature_columns: list[str],
 ) -> pd.DataFrame:
     output = game_state.copy()
 
-    validate_features(output)
+    # Build the same improved features used during training.
+    model_ready_data = build_model_features(output)
 
-    X = output[FEATURE_COLUMNS].astype(float)
+    validate_features(model_ready_data, feature_columns)
+
+    X = model_ready_data[feature_columns].astype(float)
     X_scaled = scaler.transform(X)
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
 
@@ -135,7 +157,7 @@ def add_neural_predictions(
     output["wp_change"] = output["home_win_prob"].diff().fillna(0)
     output["abs_wp_change"] = output["wp_change"].abs()
 
-    output["prediction_source"] = "pytorch_neural_network"
+    output["prediction_source"] = "pytorch_neural_network_improved_features"
 
     return output
 
@@ -158,6 +180,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    feature_columns = load_model_feature_columns()
     model, scaler = load_model_and_scaler()
     game_state = load_game_state(args.game_id)
 
@@ -165,6 +188,7 @@ def main() -> None:
         game_state=game_state,
         model=model,
         scaler=scaler,
+        feature_columns=feature_columns,
     )
 
     game_id = str(predictions["game_id"].iloc[0]).zfill(10)
@@ -175,6 +199,7 @@ def main() -> None:
     print("\nSuccess.")
     print(f"Saved neural network predictions to: {output_path}")
     print(f"Rows: {len(predictions)}")
+    print(f"Feature count used: {len(feature_columns)}")
 
     print("\nSample predictions:")
     print(
