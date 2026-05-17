@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -8,32 +9,45 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_feature_file() -> pd.DataFrame:
-    """
-    Loads the feature file created by src/features.py.
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build comeback metrics from feature data.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
 
-    This file should already contain:
-    - win probability
-    - score state
-    - clutch pressure
-    """
-    files = list(PROCESSED_DIR.glob("features_*.csv"))
+
+def get_feature_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"features_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing feature file for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/features.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("features_*.csv"))
 
     if not files:
-        raise FileNotFoundError(
-            "No feature files found. Run src/features.py first."
-        )
+        raise FileNotFoundError("No feature files found. Run src/features.py first.")
 
-    input_path = files[0]
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest feature file: {input_path}")
+    return input_path
+
+
+def load_feature_file(game_id: str | None = None) -> pd.DataFrame:
+    """
+    Loads the feature file created by src/features.py.
+    """
+    input_path = get_feature_path(game_id)
     print(f"Loading feature file from: {input_path}")
-
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
 def classify_comeback_status(comeback_probability: float) -> str:
-    """
-    Converts comeback probability into a readable label.
-    """
     if comeback_probability >= 0.40:
         return "Very realistic"
     if comeback_probability >= 0.25:
@@ -46,12 +60,6 @@ def classify_comeback_status(comeback_probability: float) -> str:
 
 
 def calculate_required_scoring_rate(deficit: int, seconds_remaining: int) -> float:
-    """
-    Estimates how many points per minute the trailing team needs
-    just to erase the deficit before the game ends.
-
-    This is not a full basketball model. It is a simple useful context metric.
-    """
     if deficit <= 0:
         return 0.0
 
@@ -60,13 +68,6 @@ def calculate_required_scoring_rate(deficit: int, seconds_remaining: int) -> flo
 
 
 def add_comeback_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds comeback-related columns to every game event.
-
-    From the home team's perspective:
-    - If home is losing, home comeback probability = home_win_prob.
-    - If away is losing, away comeback probability = away_win_prob.
-    """
     required_columns = [
         "game_id",
         "period",
@@ -95,22 +96,18 @@ def add_comeback_metrics(df: pd.DataFrame) -> pd.DataFrame:
     output.loc[output["score_margin_home"] > 0, "trailing_team"] = "Away"
 
     output["deficit"] = output["score_margin_home"].abs()
-
     output["comeback_probability"] = 0.0
 
-    # If home team is trailing, home_win_prob is their comeback chance.
     home_trailing = output["score_margin_home"] < 0
     output.loc[home_trailing, "comeback_probability"] = output.loc[
         home_trailing, "home_win_prob"
     ]
 
-    # If away team is trailing, away_win_prob is their comeback chance.
     away_trailing = output["score_margin_home"] > 0
     output.loc[away_trailing, "comeback_probability"] = output.loc[
         away_trailing, "away_win_prob"
     ]
 
-    # If tied, no comeback is needed.
     tied = output["score_margin_home"] == 0
     output.loc[tied, "comeback_probability"] = 0.5
 
@@ -134,9 +131,6 @@ def add_comeback_metrics(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_most_interesting_comeback_windows(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    """
-    Finds moments where a team is trailing but still has a non-trivial comeback chance.
-    """
     comeback_rows = df[
         (df["trailing_team"] != "Tie")
         & (df["seconds_remaining"] > 0)
@@ -146,7 +140,6 @@ def get_most_interesting_comeback_windows(df: pd.DataFrame, top_n: int = 10) -> 
     if comeback_rows.empty:
         return pd.DataFrame()
 
-    # Prioritize situations that are both difficult and still alive.
     comeback_rows["interest_score"] = (
         comeback_rows["deficit"] * 0.45
         + comeback_rows["clutch_pressure"] * 0.35
@@ -177,7 +170,8 @@ def get_most_interesting_comeback_windows(df: pd.DataFrame, top_n: int = 10) -> 
 
 
 def main() -> None:
-    features = load_feature_file()
+    args = parse_args()
+    features = load_feature_file(args.game_id)
     game_id = str(features["game_id"].iloc[0]).zfill(10)
 
     output = add_comeback_metrics(features)
