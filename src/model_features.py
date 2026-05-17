@@ -292,12 +292,13 @@ def estimate_possession_side_for_game(game_rows: pd.DataFrame) -> pd.Series:
 def add_possession_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy().sort_values(["game_id", "event_num"]).copy()
 
-    output["estimated_possession_side"] = (
-        output.groupby("game_id", group_keys=False)
-        .apply(estimate_possession_side_for_game)
-        .sort_index()
-    )
+    output["estimated_possession_side"] = 0
 
+    for _, game_rows in output.groupby("game_id", sort=False):
+        possession_series = estimate_possession_side_for_game(game_rows)
+        output.loc[possession_series.index, "estimated_possession_side"] = possession_series
+
+    output["estimated_possession_side"] = output["estimated_possession_side"].astype(int)
     output["home_has_possession"] = (output["estimated_possession_side"] == 1).astype(int)
     output["away_has_possession"] = (output["estimated_possession_side"] == -1).astype(int)
     output["possession_value_home_perspective"] = output["estimated_possession_side"]
