@@ -75,6 +75,7 @@ The Streamlit dashboard includes:
 - Player Impact
 - Clutch Pressure
 - Comeback Reality
+- Game Insights: drama score, most valuable play, most damaging play, and clutch-time scoring
 - Game Recap
 - Model Evaluation with leaderboard, Brier score, log loss, ROC-AUC, accuracy, final model probabilities, and disagreement moments
 
@@ -117,6 +118,7 @@ python src/run_pipeline.py --game-id YOUR_GAME_ID --model ml
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model neural
 python src/compare_models.py --game-id YOUR_GAME_ID
+python src/game_insights.py --game-id YOUR_GAME_ID
 python src/recap.py --game-id YOUR_GAME_ID
 streamlit run app/streamlit_app.py
 ```
@@ -195,6 +197,7 @@ python src/run_pipeline.py --game-id YOUR_GAME_ID --model ml
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model neural
 python src/compare_models.py --game-id YOUR_GAME_ID
+python src/game_insights.py --game-id YOUR_GAME_ID
 python src/recap.py --game-id YOUR_GAME_ID
 streamlit run app/streamlit_app.py
 python backend/app.py
