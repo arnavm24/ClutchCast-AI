@@ -13,13 +13,7 @@ MODEL_FILES = {
     "baseline": "baseline_predictions_{game_id}.csv",
     "logistic_ml": "ml_predictions_{game_id}.csv",
     "advanced_ml": "advanced_predictions_{game_id}.csv",
-}
-
-
-MODEL_LABELS = {
-    "baseline": "Baseline",
-    "logistic_ml": "Logistic ML",
-    "advanced_ml": "Advanced ML",
+    "neural": "neural_predictions_{game_id}.csv",
 }
 
 
@@ -39,7 +33,17 @@ def get_available_game_ids() -> list[str]:
         for file in PROCESSED_DIR.glob("advanced_predictions_*.csv")
     }
 
-    return sorted(baseline_ids.intersection(ml_ids).intersection(advanced_ids))
+    neural_ids = {
+        file.stem.replace("neural_predictions_", "")
+        for file in PROCESSED_DIR.glob("neural_predictions_*.csv")
+    }
+
+    return sorted(
+        baseline_ids
+        .intersection(ml_ids)
+        .intersection(advanced_ids)
+        .intersection(neural_ids)
+    )
 
 
 def load_prediction_file(game_id: str, model_key: str) -> pd.DataFrame:
@@ -75,6 +79,7 @@ def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
     baseline = predictions["baseline"]
     logistic_ml = predictions["logistic_ml"]
     advanced_ml = predictions["advanced_ml"]
+    neural = predictions["neural"]
 
     comparison = pd.DataFrame()
 
@@ -91,6 +96,7 @@ def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
     comparison["baseline_home_win_prob_pct"] = baseline["home_win_prob_pct"]
     comparison["logistic_ml_home_win_prob_pct"] = logistic_ml["home_win_prob_pct"]
     comparison["advanced_ml_home_win_prob_pct"] = advanced_ml["home_win_prob_pct"]
+    comparison["neural_home_win_prob_pct"] = neural["home_win_prob_pct"]
 
     comparison["logistic_minus_baseline_pct"] = (
         comparison["logistic_ml_home_win_prob_pct"]
@@ -107,6 +113,21 @@ def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
         - comparison["logistic_ml_home_win_prob_pct"]
     ).round(2)
 
+    comparison["neural_minus_baseline_pct"] = (
+        comparison["neural_home_win_prob_pct"]
+        - comparison["baseline_home_win_prob_pct"]
+    ).round(2)
+
+    comparison["neural_minus_logistic_pct"] = (
+        comparison["neural_home_win_prob_pct"]
+        - comparison["logistic_ml_home_win_prob_pct"]
+    ).round(2)
+
+    comparison["neural_minus_advanced_pct"] = (
+        comparison["neural_home_win_prob_pct"]
+        - comparison["advanced_ml_home_win_prob_pct"]
+    ).round(2)
+
     comparison["abs_logistic_minus_baseline_pct"] = (
         comparison["logistic_minus_baseline_pct"].abs()
     ).round(2)
@@ -119,11 +140,26 @@ def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
         comparison["advanced_minus_logistic_pct"].abs()
     ).round(2)
 
+    comparison["abs_neural_minus_baseline_pct"] = (
+        comparison["neural_minus_baseline_pct"].abs()
+    ).round(2)
+
+    comparison["abs_neural_minus_logistic_pct"] = (
+        comparison["neural_minus_logistic_pct"].abs()
+    ).round(2)
+
+    comparison["abs_neural_minus_advanced_pct"] = (
+        comparison["neural_minus_advanced_pct"].abs()
+    ).round(2)
+
     comparison["max_model_disagreement_pct"] = comparison[
         [
             "abs_logistic_minus_baseline_pct",
             "abs_advanced_minus_baseline_pct",
             "abs_advanced_minus_logistic_pct",
+            "abs_neural_minus_baseline_pct",
+            "abs_neural_minus_logistic_pct",
+            "abs_neural_minus_advanced_pct",
         ]
     ].max(axis=1)
 
@@ -136,6 +172,7 @@ def build_summary(comparison: pd.DataFrame) -> pd.DataFrame:
     summary = {
         "game_id": str(final_row["game_id"]).zfill(10),
         "rows_compared": len(comparison),
+
         "avg_logistic_vs_baseline_diff_pct": round(
             comparison["abs_logistic_minus_baseline_pct"].mean(), 2
         ),
@@ -145,9 +182,20 @@ def build_summary(comparison: pd.DataFrame) -> pd.DataFrame:
         "avg_advanced_vs_logistic_diff_pct": round(
             comparison["abs_advanced_minus_logistic_pct"].mean(), 2
         ),
+        "avg_neural_vs_baseline_diff_pct": round(
+            comparison["abs_neural_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_neural_vs_logistic_diff_pct": round(
+            comparison["abs_neural_minus_logistic_pct"].mean(), 2
+        ),
+        "avg_neural_vs_advanced_diff_pct": round(
+            comparison["abs_neural_minus_advanced_pct"].mean(), 2
+        ),
+
         "max_model_disagreement_pct": round(
             comparison["max_model_disagreement_pct"].max(), 2
         ),
+
         "baseline_final_home_win_prob_pct": final_row[
             "baseline_home_win_prob_pct"
         ],
@@ -157,6 +205,10 @@ def build_summary(comparison: pd.DataFrame) -> pd.DataFrame:
         "advanced_ml_final_home_win_prob_pct": final_row[
             "advanced_ml_home_win_prob_pct"
         ],
+        "neural_final_home_win_prob_pct": final_row[
+            "neural_home_win_prob_pct"
+        ],
+
         "final_home_score": int(final_row["home_score"]),
         "final_away_score": int(final_row["away_score"]),
         "final_home_margin": int(final_row["score_margin_home"]),
@@ -181,9 +233,13 @@ def get_biggest_disagreements(
         "baseline_home_win_prob_pct",
         "logistic_ml_home_win_prob_pct",
         "advanced_ml_home_win_prob_pct",
+        "neural_home_win_prob_pct",
         "logistic_minus_baseline_pct",
         "advanced_minus_baseline_pct",
         "advanced_minus_logistic_pct",
+        "neural_minus_baseline_pct",
+        "neural_minus_logistic_pct",
+        "neural_minus_advanced_pct",
         "max_model_disagreement_pct",
     ]
 
@@ -197,14 +253,20 @@ def get_biggest_disagreements(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare baseline, logistic ML, and advanced ML predictions."
+        description=(
+            "Compare baseline, logistic ML, advanced ML, "
+            "and PyTorch neural network predictions."
+        )
     )
 
     parser.add_argument(
         "--game-id",
         type=str,
         default=None,
-        help="Specific game ID to compare. If omitted, uses the latest available shared game.",
+        help=(
+            "Specific game ID to compare. "
+            "If omitted, uses the latest available shared game."
+        ),
     )
 
     parser.add_argument(
@@ -224,10 +286,11 @@ def main() -> None:
 
     if not available_game_ids:
         raise FileNotFoundError(
-            "No games found with baseline, logistic ML, and advanced ML predictions. Run:\n"
+            "No games found with all four prediction files. Run:\n"
             "python src/run_pipeline.py --game-id YOUR_GAME_ID --model baseline\n"
             "python src/run_pipeline.py --game-id YOUR_GAME_ID --model ml\n"
-            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced"
+            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced\n"
+            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model neural"
         )
 
     if args.game_id:
@@ -237,7 +300,7 @@ def main() -> None:
 
     if game_id not in available_game_ids:
         raise ValueError(
-            f"Game {game_id} does not have all three prediction files.\n"
+            f"Game {game_id} does not have all four prediction files.\n"
             f"Available game IDs: {available_game_ids}"
         )
 
