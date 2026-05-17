@@ -205,9 +205,26 @@ def load_dashboard_data(game_id: str, prediction_mode: str) -> dict:
         else "No recap file found. Run the full pipeline first."
     )
 
+    summary_path = REPORTS_DIR / f"model_comparison_summary_{game_id}.csv"
+    disagreements_path = REPORTS_DIR / f"model_disagreements_{game_id}.csv"
+
+    comparison_summary = (
+        pd.read_csv(summary_path, dtype={"game_id": str})
+        if summary_path.exists()
+        else pd.DataFrame()
+    )
+
+    model_disagreements = (
+        pd.read_csv(disagreements_path, dtype={"game_id": str})
+        if disagreements_path.exists()
+        else pd.DataFrame()
+    )
+
     return {
         "predictions": predictions,
         "recap": recap,
+        "comparison_summary": comparison_summary,
+        "model_disagreements": model_disagreements,
     }
 
 
@@ -245,6 +262,23 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "event_count": "Events Tracked",
         "home_win_prob_pct": "Home Win Probability",
         "away_win_prob_pct": "Away Win Probability",
+        "baseline_home_win_prob_pct": "Baseline Home Win Probability",
+        "ml_home_win_prob_pct": "ML Home Win Probability",
+        "probability_difference_pct": "ML - Baseline Difference",
+        "absolute_difference_pct": "Absolute Difference",
+        "baseline_wp_change_pct": "Baseline Win Prob. Change",
+        "ml_wp_change_pct": "ML Win Prob. Change",
+        "wp_change_difference_pct": "Change Difference",
+        "rows_compared": "Rows Compared",
+        "average_absolute_difference_pct": "Avg. Absolute Difference",
+        "maximum_absolute_difference_pct": "Max Difference",
+        "average_signed_difference_pct": "Avg. Signed Difference",
+        "baseline_final_home_win_prob_pct": "Baseline Final Home Win Prob.",
+        "ml_final_home_win_prob_pct": "ML Final Home Win Prob.",
+        "final_probability_difference_pct": "Final Difference",
+        "final_home_score": "Final Home Score",
+        "final_away_score": "Final Away Score",
+        "final_home_margin": "Final Home Margin",
         "clutch_pressure": "Clutch Pressure",
         "pressure_level": "Pressure Level",
         "trailing_team": "Trailing Team",
@@ -252,12 +286,6 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "comeback_probability_pct": "Comeback Probability",
         "comeback_status": "Comeback Status",
         "required_points_per_minute": "Required Points/Min",
-        "recent_margin_change": "Recent Margin Change",
-        "recent_wp_change_pct": "Recent Win Prob. Change",
-        "recent_event_value": "Recent Event Value",
-        "event_value": "Event Value",
-        "hidden_momentum_score": "Momentum Score",
-        "momentum_label": "Momentum Label",
     }
 
     return display.rename(columns=rename_map)
@@ -726,6 +754,53 @@ def show_comeback_meter(predictions: pd.DataFrame) -> None:
     )
 
 
+def show_model_comparison(
+    comparison_summary: pd.DataFrame,
+    model_disagreements: pd.DataFrame,
+) -> None:
+    st.subheader("Model Comparison")
+    st.caption("Compares the rule-based baseline against the trained ML model.")
+
+    if comparison_summary.empty or model_disagreements.empty:
+        st.warning("Model comparison files were not found for this game.")
+        st.info(
+            "Run:\n\n"
+            "`python src/compare_models.py --game-id YOUR_GAME_ID`"
+        )
+        return
+
+    summary = comparison_summary.iloc[0]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    col1.metric(
+        "Avg. Difference",
+        f"{float(summary['average_absolute_difference_pct']):.1f}%",
+    )
+    col2.metric(
+        "Max Difference",
+        f"{float(summary['maximum_absolute_difference_pct']):.1f}%",
+    )
+    col3.metric(
+        "Baseline Final WP",
+        f"{float(summary['baseline_final_home_win_prob_pct']):.1f}%",
+    )
+    col4.metric(
+        "ML Final WP",
+        f"{float(summary['ml_final_home_win_prob_pct']):.1f}%",
+    )
+
+    st.markdown("### Biggest Baseline vs ML Disagreements")
+
+    display = clean_table_columns(model_disagreements)
+
+    st.dataframe(
+        display,
+        width="stretch",
+        hide_index=True,
+    )
+
+
 def show_recap(
     recap: str,
     predictions: pd.DataFrame,
@@ -795,6 +870,8 @@ def main() -> None:
 
     predictions = data["predictions"]
     recap = data["recap"]
+    comparison_summary = data["comparison_summary"]
+    model_disagreements = data["model_disagreements"]
 
     game_id = str(predictions["game_id"].iloc[0]).zfill(10)
     home_team, away_team = get_team_labels(game_id)
@@ -812,12 +889,13 @@ def main() -> None:
     show_game_summary(predictions, home_team, away_team, prediction_mode)
     show_win_probability_chart(predictions, home_team, away_team)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
         [
             "Turning Points",
             "Player Impact",
             "Clutch Pressure",
             "Comeback Reality",
+            "Model Comparison",
             "Game Recap",
         ]
     )
@@ -835,6 +913,9 @@ def main() -> None:
         show_comeback_meter(predictions)
 
     with tab5:
+        show_model_comparison(comparison_summary, model_disagreements)
+
+    with tab6:
         show_recap(recap, predictions, home_team, away_team)
 
 
