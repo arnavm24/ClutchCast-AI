@@ -101,6 +101,7 @@ def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]
         ("Calculate hidden momentum", ["src/momentum.py"] + game_id_args),
         ("Calculate player swing impact", ["src/player_impact.py"] + game_id_args),
         ("Find turning points", ["src/turning_points.py"] + game_id_args),
+        ("Generate game insights", ["src/game_insights.py"] + game_id_args),
         ("Generate post-game recap", ["src/recap.py"] + game_id_args),
     ]
 
