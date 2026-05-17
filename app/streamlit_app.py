@@ -159,10 +159,16 @@ def get_available_game_ids() -> list[str]:
     for file in PROCESSED_DIR.glob("ml_predictions_*.csv"):
         game_ids.add(file.stem.replace("ml_predictions_", ""))
 
+    for file in PROCESSED_DIR.glob("advanced_predictions_*.csv"):
+        game_ids.add(file.stem.replace("advanced_predictions_", ""))
+
     return sorted(game_ids)
 
 
 def get_prediction_file(game_id: str, prediction_mode: str) -> Path:
+    if prediction_mode == "Advanced ML Model":
+        return PROCESSED_DIR / f"advanced_predictions_{game_id}.csv"
+
     if prediction_mode == "ML Model":
         return PROCESSED_DIR / f"ml_predictions_{game_id}.csv"
 
@@ -759,14 +765,11 @@ def show_model_comparison(
     model_disagreements: pd.DataFrame,
 ) -> None:
     st.subheader("Model Comparison")
-    st.caption("Compares the rule-based baseline against the trained ML model.")
+    st.caption("Compares the rule-based baseline against the trained logistic regression ML model.")
 
     if comparison_summary.empty or model_disagreements.empty:
         st.warning("Model comparison files were not found for this game.")
-        st.info(
-            "Run:\n\n"
-            "`python src/compare_models.py --game-id YOUR_GAME_ID`"
-        )
+        st.info("Run: `python src/compare_models.py --game-id YOUR_GAME_ID`")
         return
 
     summary = comparison_summary.iloc[0]
@@ -855,10 +858,15 @@ def main() -> None:
         )
 
         available_modes = []
+
         if (PROCESSED_DIR / f"baseline_predictions_{selected_game_id}.csv").exists():
             available_modes.append("Baseline Model")
+
         if (PROCESSED_DIR / f"ml_predictions_{selected_game_id}.csv").exists():
             available_modes.append("ML Model")
+
+        if (PROCESSED_DIR / f"advanced_predictions_{selected_game_id}.csv").exists():
+            available_modes.append("Advanced ML Model")
 
         prediction_mode = st.selectbox(
             "Prediction mode",
@@ -883,7 +891,8 @@ def main() -> None:
         st.markdown(f"**Mode:** `{prediction_mode}`")
         st.divider()
         st.caption("Baseline = rule-based formula")
-        st.caption("ML Model = trained model predictions")
+        st.caption("ML Model = logistic regression")
+        st.caption("Advanced ML = random forest model")
 
     show_header(home_team, away_team, prediction_mode)
     show_game_summary(predictions, home_team, away_team, prediction_mode)
