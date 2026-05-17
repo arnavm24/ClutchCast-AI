@@ -65,6 +65,15 @@ def load_predictions(game_id: str) -> tuple[pd.DataFrame, str]:
     return pd.read_csv(path, dtype={"game_id": str}), model_key
 
 
+def is_non_terminal_state(df: pd.DataFrame) -> pd.Series:
+    description = df["event_description"].fillna("").astype(str).str.lower()
+    return (
+        (df["seconds_remaining"] > 0)
+        & ~description.str.contains("end of", regex=False)
+        & ~description.str.contains("instant replay", regex=False)
+    )
+
+
 def is_rankable_play(df: pd.DataFrame) -> pd.Series:
     description = df["event_description"].fillna("").astype(str).str.lower()
     event_team = df["event_team"].fillna("").astype(str).str.strip()
@@ -77,9 +86,7 @@ def is_rankable_play(df: pd.DataFrame) -> pd.Series:
     )
 
     return (
-        (df["seconds_remaining"] > 0)
-        & ~description.str.contains("end of", regex=False)
-        & ~description.str.contains("instant replay", regex=False)
+        is_non_terminal_state(df)
         & ~timeout_or_sub
         & (event_team != "")
         & (event_player != "")
@@ -105,11 +112,15 @@ def count_lead_changes(score_margin: pd.Series) -> int:
 def build_game_drama_score(predictions: pd.DataFrame, winner: str) -> tuple[int, str]:
     data = predictions.copy()
     data["clutch_pressure"] = calculate_clutch_pressure(data)
+    drama_rows = data[is_non_terminal_state(data)].copy()
+
+    if drama_rows.empty:
+        drama_rows = data.copy()
 
     final_margin = abs(int(data["score_margin_home"].iloc[-1]))
     ties = int((data["score_margin_home"] == 0).sum())
     lead_changes = count_lead_changes(data["score_margin_home"])
-    major_swings = int((data["abs_wp_change"] >= 0.10).sum())
+    major_swings = int((drama_rows["abs_wp_change"] >= 0.10).sum())
 
     if winner == "home":
         losing_team_max_wp = float(data["away_win_prob"].max())
@@ -124,7 +135,7 @@ def build_game_drama_score(predictions: pd.DataFrame, winner: str) -> tuple[int,
     swing_component = min(100, major_swings * 20)
     losing_wp_component = losing_team_max_wp * 100
     comeback_component = min(100, max_deficit_overcome * 8)
-    clutch_component = float(data["clutch_pressure"].max())
+    clutch_component = float(drama_rows["clutch_pressure"].max())
 
     score = round(
         0.20 * final_margin_component
