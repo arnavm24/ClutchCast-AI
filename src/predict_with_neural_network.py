@@ -6,6 +6,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 
+from ml_pipeline_utils import apply_terminal_state_overrides, load_feature_columns
 from model_features import build_model_features
 
 
@@ -21,15 +22,12 @@ class WinProbabilityNeuralNetwork(nn.Module):
             nn.Linear(input_size, 64),
             nn.ReLU(),
             nn.Dropout(0.20),
-
             nn.Linear(64, 32),
             nn.ReLU(),
             nn.Dropout(0.15),
-
             nn.Linear(32, 16),
             nn.ReLU(),
             nn.Dropout(0.10),
-
             nn.Linear(16, 1),
             nn.Sigmoid(),
         )
@@ -39,24 +37,7 @@ class WinProbabilityNeuralNetwork(nn.Module):
 
 
 def load_model_feature_columns() -> list[str]:
-    feature_path = MODELS_DIR / "pytorch_model_features.txt"
-
-    if not feature_path.exists():
-        raise FileNotFoundError(
-            "No PyTorch feature list found. Run:\n"
-            "python src/train_neural_network.py"
-        )
-
-    feature_columns = [
-        line.strip()
-        for line in feature_path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
-
-    if not feature_columns:
-        raise ValueError("PyTorch feature list is empty.")
-
-    return feature_columns
+    return load_feature_columns()
 
 
 def load_model_and_scaler():
@@ -136,9 +117,7 @@ def add_neural_predictions(
 ) -> pd.DataFrame:
     output = game_state.copy()
 
-    # Build the same improved features used during training.
     model_ready_data = build_model_features(output)
-
     validate_features(model_ready_data, feature_columns)
 
     X = model_ready_data[feature_columns].astype(float)
@@ -146,17 +125,9 @@ def add_neural_predictions(
     X_tensor = torch.tensor(X_scaled, dtype=torch.float32)
 
     with torch.no_grad():
-        home_win_prob = model(X_tensor).numpy().flatten()
+        output["home_win_prob"] = model(X_tensor).numpy().flatten()
 
-    output["home_win_prob"] = home_win_prob
-    output["away_win_prob"] = 1 - output["home_win_prob"]
-
-    output["home_win_prob_pct"] = (output["home_win_prob"] * 100).round(1)
-    output["away_win_prob_pct"] = (output["away_win_prob"] * 100).round(1)
-
-    output["wp_change"] = output["home_win_prob"].diff().fillna(0)
-    output["abs_wp_change"] = output["wp_change"].abs()
-
+    output = apply_terminal_state_overrides(output)
     output["prediction_source"] = "pytorch_neural_network_improved_features"
 
     return output
