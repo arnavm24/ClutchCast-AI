@@ -269,19 +269,22 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "home_win_prob_pct": "Home Win Probability",
         "away_win_prob_pct": "Away Win Probability",
         "baseline_home_win_prob_pct": "Baseline Home Win Probability",
-        "ml_home_win_prob_pct": "ML Home Win Probability",
-        "probability_difference_pct": "ML - Baseline Difference",
-        "absolute_difference_pct": "Absolute Difference",
-        "baseline_wp_change_pct": "Baseline Win Prob. Change",
-        "ml_wp_change_pct": "ML Win Prob. Change",
-        "wp_change_difference_pct": "Change Difference",
+        "logistic_ml_home_win_prob_pct": "Logistic ML Home Win Probability",
+        "advanced_ml_home_win_prob_pct": "Advanced ML Home Win Probability",
+        "logistic_minus_baseline_pct": "Logistic - Baseline",
+        "advanced_minus_baseline_pct": "Advanced - Baseline",
+        "advanced_minus_logistic_pct": "Advanced - Logistic",
+        "abs_logistic_minus_baseline_pct": "Abs. Logistic - Baseline",
+        "abs_advanced_minus_baseline_pct": "Abs. Advanced - Baseline",
+        "abs_advanced_minus_logistic_pct": "Abs. Advanced - Logistic",
+        "max_model_disagreement_pct": "Max Model Disagreement",
         "rows_compared": "Rows Compared",
-        "average_absolute_difference_pct": "Avg. Absolute Difference",
-        "maximum_absolute_difference_pct": "Max Difference",
-        "average_signed_difference_pct": "Avg. Signed Difference",
+        "avg_logistic_vs_baseline_diff_pct": "Avg. Logistic vs Baseline",
+        "avg_advanced_vs_baseline_diff_pct": "Avg. Advanced vs Baseline",
+        "avg_advanced_vs_logistic_diff_pct": "Avg. Advanced vs Logistic",
         "baseline_final_home_win_prob_pct": "Baseline Final Home Win Prob.",
-        "ml_final_home_win_prob_pct": "ML Final Home Win Prob.",
-        "final_probability_difference_pct": "Final Difference",
+        "logistic_ml_final_home_win_prob_pct": "Logistic Final Home Win Prob.",
+        "advanced_ml_final_home_win_prob_pct": "Advanced Final Home Win Prob.",
         "final_home_score": "Final Home Score",
         "final_away_score": "Final Away Score",
         "final_home_margin": "Final Home Margin",
@@ -765,10 +768,10 @@ def show_model_comparison(
     model_disagreements: pd.DataFrame,
 ) -> None:
     st.subheader("Model Comparison")
-    st.caption("Compares the rule-based baseline against the trained logistic regression ML model.")
+    st.caption("Compares the baseline formula, logistic regression model, and advanced random forest model.")
 
     if comparison_summary.empty or model_disagreements.empty:
-        st.warning("Model comparison files were not found for this game.")
+        st.warning("Three-model comparison files were not found for this game.")
         st.info("Run: `python src/compare_models.py --game-id YOUR_GAME_ID`")
         return
 
@@ -777,23 +780,40 @@ def show_model_comparison(
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
-        "Avg. Difference",
-        f"{float(summary['average_absolute_difference_pct']):.1f}%",
+        "Logistic vs Baseline",
+        f"{float(summary['avg_logistic_vs_baseline_diff_pct']):.1f}%",
     )
     col2.metric(
-        "Max Difference",
-        f"{float(summary['maximum_absolute_difference_pct']):.1f}%",
+        "Advanced vs Baseline",
+        f"{float(summary['avg_advanced_vs_baseline_diff_pct']):.1f}%",
     )
     col3.metric(
-        "Baseline Final WP",
-        f"{float(summary['baseline_final_home_win_prob_pct']):.1f}%",
+        "Advanced vs Logistic",
+        f"{float(summary['avg_advanced_vs_logistic_diff_pct']):.1f}%",
     )
     col4.metric(
-        "ML Final WP",
-        f"{float(summary['ml_final_home_win_prob_pct']):.1f}%",
+        "Max Disagreement",
+        f"{float(summary['max_model_disagreement_pct']):.1f}%",
     )
 
-    st.markdown("### Biggest Baseline vs ML Disagreements")
+    st.markdown("### Final Home Win Probability by Model")
+
+    final_cols = st.columns(3)
+
+    final_cols[0].metric(
+        "Baseline",
+        f"{float(summary['baseline_final_home_win_prob_pct']):.1f}%",
+    )
+    final_cols[1].metric(
+        "Logistic ML",
+        f"{float(summary['logistic_ml_final_home_win_prob_pct']):.1f}%",
+    )
+    final_cols[2].metric(
+        "Advanced ML",
+        f"{float(summary['advanced_ml_final_home_win_prob_pct']):.1f}%",
+    )
+
+    st.markdown("### Biggest Model Disagreement Moments")
 
     display = clean_table_columns(model_disagreements)
 
