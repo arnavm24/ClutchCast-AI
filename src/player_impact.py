@@ -46,10 +46,25 @@ def load_predictions(game_id: str | None = None) -> pd.DataFrame:
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
+def is_rankable_player_event(df: pd.DataFrame) -> pd.Series:
+    description = df["event_description"].fillna("").astype(str).str.lower()
+    event_team = df["event_team"].fillna("").astype(str).str.strip()
+    event_player = df["event_player"].fillna("").astype(str).str.strip()
+
+    return (
+        (df["seconds_remaining"] > 0)
+        & ~description.str.contains("end of", regex=False)
+        & ~description.str.contains("instant replay", regex=False)
+        & (event_team != "")
+        & (event_player != "")
+    )
+
+
 def calculate_player_swing_impact(df: pd.DataFrame) -> pd.DataFrame:
     required_columns = [
         "event_team",
         "event_player",
+        "seconds_remaining",
         "wp_change",
         "abs_wp_change",
         "home_score",
@@ -62,8 +77,7 @@ def calculate_player_swing_impact(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Missing required columns: {missing}")
 
     data = df.copy()
-    data = data[data["event_player"].notna()]
-    data = data[data["event_player"].astype(str).str.strip() != ""]
+    data = data[is_rankable_player_event(data)]
 
     if data.empty:
         raise ValueError("No player events found in prediction data.")
@@ -105,6 +119,7 @@ def get_top_player_events(df: pd.DataFrame, player_name: str, top_n: int = 5) ->
     player_events = df[
         df["event_player"].astype(str).str.lower() == player_name.lower()
     ].copy()
+    player_events = player_events[is_rankable_player_event(player_events)]
 
     if player_events.empty:
         return pd.DataFrame()
