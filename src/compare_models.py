@@ -39,9 +39,15 @@ MODEL_LABELS = {
 
 MODEL_PROBABILITY_COLUMNS = {
     "baseline": "baseline_home_win_prob_pct",
-    "logistic_regression": "logistic_regression_home_win_prob_pct",
-    "random_forest": "random_forest_home_win_prob_pct",
-    "pytorch_neural_network": "pytorch_neural_network_home_win_prob_pct",
+    "logistic_regression": "logistic_ml_home_win_prob_pct",
+    "random_forest": "advanced_ml_home_win_prob_pct",
+    "pytorch_neural_network": "neural_home_win_prob_pct",
+}
+
+MODEL_DIFF_NAMES = {
+    "logistic_regression": "logistic",
+    "random_forest": "advanced",
+    "pytorch_neural_network": "neural",
 }
 
 
@@ -118,18 +124,39 @@ def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
         comparison[probability_column] = df["home_win_prob_pct"]
         probability_columns.append(probability_column)
 
-    for model_key, probability_column in MODEL_PROBABILITY_COLUMNS.items():
-        if model_key == "baseline":
-            continue
-
-        diff_column = f"{model_key}_minus_baseline_pct"
-        abs_diff_column = f"abs_{model_key}_minus_baseline_pct"
+    for model_key, report_name in MODEL_DIFF_NAMES.items():
+        probability_column = MODEL_PROBABILITY_COLUMNS[model_key]
+        diff_column = f"{report_name}_minus_baseline_pct"
+        abs_diff_column = f"abs_{report_name}_minus_baseline_pct"
 
         comparison[diff_column] = (
             comparison[probability_column]
             - comparison[MODEL_PROBABILITY_COLUMNS["baseline"]]
         ).round(2)
         comparison[abs_diff_column] = comparison[diff_column].abs().round(2)
+
+    comparison["advanced_minus_logistic_pct"] = (
+        comparison["advanced_ml_home_win_prob_pct"]
+        - comparison["logistic_ml_home_win_prob_pct"]
+    ).round(2)
+    comparison["neural_minus_logistic_pct"] = (
+        comparison["neural_home_win_prob_pct"]
+        - comparison["logistic_ml_home_win_prob_pct"]
+    ).round(2)
+    comparison["neural_minus_advanced_pct"] = (
+        comparison["neural_home_win_prob_pct"]
+        - comparison["advanced_ml_home_win_prob_pct"]
+    ).round(2)
+
+    comparison["abs_advanced_minus_logistic_pct"] = (
+        comparison["advanced_minus_logistic_pct"].abs().round(2)
+    )
+    comparison["abs_neural_minus_logistic_pct"] = (
+        comparison["neural_minus_logistic_pct"].abs().round(2)
+    )
+    comparison["abs_neural_minus_advanced_pct"] = (
+        comparison["neural_minus_advanced_pct"].abs().round(2)
+    )
 
     comparison["max_model_disagreement_pct"] = (
         comparison[probability_columns].max(axis=1)
@@ -145,22 +172,43 @@ def build_summary(comparison: pd.DataFrame) -> pd.DataFrame:
     summary = {
         "game_id": str(final_row["game_id"]).zfill(10),
         "rows_compared": len(comparison),
+        "avg_logistic_vs_baseline_diff_pct": round(
+            comparison["abs_logistic_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_advanced_vs_baseline_diff_pct": round(
+            comparison["abs_advanced_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_advanced_vs_logistic_diff_pct": round(
+            comparison["abs_advanced_minus_logistic_pct"].mean(), 2
+        ),
+        "avg_neural_vs_baseline_diff_pct": round(
+            comparison["abs_neural_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_neural_vs_logistic_diff_pct": round(
+            comparison["abs_neural_minus_logistic_pct"].mean(), 2
+        ),
+        "avg_neural_vs_advanced_diff_pct": round(
+            comparison["abs_neural_minus_advanced_pct"].mean(), 2
+        ),
         "max_model_disagreement_pct": round(
             comparison["max_model_disagreement_pct"].max(), 2
         ),
+        "baseline_final_home_win_prob_pct": final_row[
+            "baseline_home_win_prob_pct"
+        ],
+        "logistic_ml_final_home_win_prob_pct": final_row[
+            "logistic_ml_home_win_prob_pct"
+        ],
+        "advanced_ml_final_home_win_prob_pct": final_row[
+            "advanced_ml_home_win_prob_pct"
+        ],
+        "neural_final_home_win_prob_pct": final_row[
+            "neural_home_win_prob_pct"
+        ],
         "final_home_score": int(final_row["home_score"]),
         "final_away_score": int(final_row["away_score"]),
         "final_home_margin": int(final_row["score_margin_home"]),
     }
-
-    for model_key, probability_column in MODEL_PROBABILITY_COLUMNS.items():
-        summary[f"{model_key}_final_home_win_prob_pct"] = final_row[probability_column]
-
-        if model_key != "baseline":
-            diff_column = f"abs_{model_key}_minus_baseline_pct"
-            summary[f"avg_{model_key}_vs_baseline_diff_pct"] = round(
-                comparison[diff_column].mean(), 2
-            )
 
     return pd.DataFrame([summary])
 
@@ -179,9 +227,15 @@ def get_biggest_disagreements(
         "event_player",
         "event_description",
         "baseline_home_win_prob_pct",
-        "logistic_regression_home_win_prob_pct",
-        "random_forest_home_win_prob_pct",
-        "pytorch_neural_network_home_win_prob_pct",
+        "logistic_ml_home_win_prob_pct",
+        "advanced_ml_home_win_prob_pct",
+        "neural_home_win_prob_pct",
+        "logistic_minus_baseline_pct",
+        "advanced_minus_baseline_pct",
+        "advanced_minus_logistic_pct",
+        "neural_minus_baseline_pct",
+        "neural_minus_logistic_pct",
+        "neural_minus_advanced_pct",
         "max_model_disagreement_pct",
     ]
 
