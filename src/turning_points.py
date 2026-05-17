@@ -46,11 +46,26 @@ def load_predictions(game_id: str | None = None) -> pd.DataFrame:
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
+def is_rankable_play(df: pd.DataFrame) -> pd.Series:
+    description = df["event_description"].fillna("").astype(str).str.lower()
+    event_team = df["event_team"].fillna("").astype(str).str.strip()
+    event_player = df["event_player"].fillna("").astype(str).str.strip()
+
+    return (
+        (df["seconds_remaining"] > 0)
+        & ~description.str.contains("end of", regex=False)
+        & ~description.str.contains("instant replay", regex=False)
+        & (event_team != "")
+        & (event_player != "")
+    )
+
+
 def find_turning_points(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     required_columns = [
         "game_id",
         "period",
         "clock",
+        "seconds_remaining",
         "home_score",
         "away_score",
         "score_margin_home",
@@ -80,7 +95,10 @@ def find_turning_points(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
         turning_points["wp_after_pct"] - turning_points["wp_before_pct"]
     ).round(1)
 
-    turning_points = turning_points[turning_points["abs_wp_change"] > 0]
+    turning_points = turning_points[
+        (turning_points["abs_wp_change"] > 0)
+        & is_rankable_play(turning_points)
+    ]
 
     turning_points = turning_points.sort_values(
         "abs_wp_change",
