@@ -20,6 +20,9 @@ BASE_FEATURE_COLUMNS = [
     "is_clutch_time",
 ]
 
+TEAM_STRENGTH_PATH = PROCESSED_DIR / "team_strength.csv"
+DEFAULT_TEAM_STRENGTH = 0.5
+
 
 def load_training_dataset() -> pd.DataFrame:
     input_path = PROCESSED_DIR / "training_dataset.csv"
@@ -170,21 +173,54 @@ def add_event_value_features(df: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
+def infer_home_away_teams_from_scoring(output: pd.DataFrame) -> pd.DataFrame:
+    output["home_team_abbrev"] = ""
+    output["away_team_abbrev"] = ""
+
+    for game_id, game_rows in output.groupby("game_id", sort=False):
+        home_candidates = set(
+            game_rows.loc[
+                (game_rows["home_score_delta"] > 0) & (game_rows["event_team"] != ""),
+                "event_team",
+            ]
+        )
+        away_candidates = set(
+            game_rows.loc[
+                (game_rows["away_score_delta"] > 0) & (game_rows["event_team"] != ""),
+                "event_team",
+            ]
+        )
+
+        if len(home_candidates) == 1 and len(away_candidates) == 1:
+            home_team = next(iter(home_candidates))
+            away_team = next(iter(away_candidates))
+
+            if home_team != away_team:
+                mask = output["game_id"] == game_id
+                output.loc[mask, "home_team_abbrev"] = home_team
+                output.loc[mask, "away_team_abbrev"] = away_team
+
+    return output
+
+
 def add_team_event_direction_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy().sort_values(["game_id", "event_num"]).copy()
 
     output["event_team"] = output["event_team"].fillna("").astype(str)
-    output["home_score_delta"] = output.groupby("game_id")["home_score"].diff().fillna(0)
-    output["away_score_delta"] = output.groupby("game_id")["away_score"].diff().fillna(0)
+    output["home_score_delta"] = output.groupby("game_id")["home_score"].diff().fillna(0).clip(lower=0)
+    output["away_score_delta"] = output.groupby("game_id")["away_score"].diff().fillna(0).clip(lower=0)
 
-    # We only assign event direction when the current event itself changed the score.
-    # Non-scoring events remain neutral because the raw game-state file does not carry
-    # reliable home/away team labels for every event.
+    output = infer_home_away_teams_from_scoring(output)
+
+    # Team side is considered reliable only when scoring events identify exactly
+    # one home scoring team and one away scoring team for that game.
     output["event_by_home"] = (
-        (output["home_score_delta"] > 0) & (output["event_team"] != "")
+        (output["home_team_abbrev"] != "")
+        & (output["event_team"] == output["home_team_abbrev"])
     ).astype(int)
     output["event_by_away"] = (
-        (output["away_score_delta"] > 0) & (output["event_team"] != "")
+        (output["away_team_abbrev"] != "")
+        & (output["event_team"] == output["away_team_abbrev"])
     ).astype(int)
 
     output["signed_event_value_home_perspective"] = 0
@@ -194,6 +230,109 @@ def add_team_event_direction_features(df: pd.DataFrame) -> pd.DataFrame:
     output.loc[output["event_by_away"] == 1, "signed_event_value_home_perspective"] = -(
         output.loc[output["event_by_away"] == 1, "event_value"]
     )
+
+    return output
+
+
+def add_team_action_features(df: pd.DataFrame) -> pd.DataFrame:
+    output = df.copy()
+
+    action_columns = [
+        "turnover",
+        "rebound",
+        "offensive_rebound",
+        "steal",
+        "block",
+        "foul",
+        "timeout",
+    ]
+
+    source_columns = {
+        "turnover": "is_turnover",
+        "rebound": "is_rebound",
+        "offensive_rebound": "is_offensive_rebound",
+        "steal": "is_steal",
+        "block": "is_block",
+        "foul": "is_foul",
+        "timeout": "is_timeout",
+    }
+
+    for action in action_columns:
+        source = source_columns[action]
+        output[f"home_{action}"] = ((output["event_by_home"] == 1) & (output[source] == 1)).astype(int)
+        output[f"away_{action}"] = ((output["event_by_away"] == 1) & (output[source] == 1)).astype(int)
+
+    return output
+
+
+def estimate_possession_side_for_game(game_rows: pd.DataFrame) -> pd.Series:
+    possession_side = []
+    current_side = 0
+
+    for _, row in game_rows.iterrows():
+        event_side = 1 if row["event_by_home"] == 1 else -1 if row["event_by_away"] == 1 else 0
+
+        if event_side != 0:
+            if row["is_steal"] == 1:
+                current_side = event_side
+            elif row["is_turnover"] == 1:
+                current_side = -event_side
+            elif row["is_rebound"] == 1:
+                current_side = event_side
+            elif row["is_timeout"] == 1:
+                current_side = event_side
+            elif row["is_made_shot"] == 1 and row["is_free_throw"] == 0:
+                current_side = -event_side
+
+        possession_side.append(current_side)
+
+    return pd.Series(possession_side, index=game_rows.index)
+
+
+def add_possession_features(df: pd.DataFrame) -> pd.DataFrame:
+    output = df.copy().sort_values(["game_id", "event_num"]).copy()
+
+    output["estimated_possession_side"] = (
+        output.groupby("game_id", group_keys=False)
+        .apply(estimate_possession_side_for_game)
+        .sort_index()
+    )
+
+    output["home_has_possession"] = (output["estimated_possession_side"] == 1).astype(int)
+    output["away_has_possession"] = (output["estimated_possession_side"] == -1).astype(int)
+    output["possession_value_home_perspective"] = output["estimated_possession_side"]
+    output["estimated_possession_team"] = "unknown"
+    output.loc[output["estimated_possession_side"] == 1, "estimated_possession_team"] = "home"
+    output.loc[output["estimated_possession_side"] == -1, "estimated_possession_team"] = "away"
+
+    return output
+
+
+def load_team_strengths() -> dict[str, float]:
+    if not TEAM_STRENGTH_PATH.exists():
+        return {}
+
+    strengths = pd.read_csv(TEAM_STRENGTH_PATH)
+    team_column = "team" if "team" in strengths.columns else "team_abbrev"
+    value_column = "strength" if "strength" in strengths.columns else "team_strength"
+
+    if team_column not in strengths.columns or value_column not in strengths.columns:
+        return {}
+
+    return dict(zip(strengths[team_column].astype(str), strengths[value_column].astype(float)))
+
+
+def add_team_strength_features(df: pd.DataFrame) -> pd.DataFrame:
+    output = df.copy()
+    strengths = load_team_strengths()
+
+    output["home_team_strength"] = (
+        output["home_team_abbrev"].map(strengths).fillna(DEFAULT_TEAM_STRENGTH)
+    )
+    output["away_team_strength"] = (
+        output["away_team_abbrev"].map(strengths).fillna(DEFAULT_TEAM_STRENGTH)
+    )
+    output["team_strength_diff_home"] = output["home_team_strength"] - output["away_team_strength"]
 
     return output
 
@@ -220,6 +359,21 @@ def add_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
             .sum()
             .reset_index(level=0, drop=True)
         )
+        output[f"home_points_last_{window}_events"] = (
+            output.groupby("game_id")["home_score_delta"]
+            .rolling(window=window, min_periods=1)
+            .sum()
+            .reset_index(level=0, drop=True)
+        )
+        output[f"away_points_last_{window}_events"] = (
+            output.groupby("game_id")["away_score_delta"]
+            .rolling(window=window, min_periods=1)
+            .sum()
+            .reset_index(level=0, drop=True)
+        )
+
+    output["home_run_last_10_events"] = output["home_points_last_10_events"] - output["away_points_last_10_events"]
+    output["away_run_last_10_events"] = output["away_points_last_10_events"] - output["home_points_last_10_events"]
 
     return output
 
@@ -244,6 +398,9 @@ def build_model_features(df: pd.DataFrame) -> pd.DataFrame:
     output = add_event_type_features(output)
     output = add_event_value_features(output)
     output = add_team_event_direction_features(output)
+    output = add_team_action_features(output)
+    output = add_possession_features(output)
+    output = add_team_strength_features(output)
     output = add_rolling_features(output)
 
     return output.fillna(0)
@@ -258,8 +415,9 @@ def get_model_feature_columns(df: pd.DataFrame) -> list[str]:
         "event_player",
         "event_description",
         "event_type",
-        "home_score_delta",
-        "away_score_delta",
+        "home_team_abbrev",
+        "away_team_abbrev",
+        "estimated_possession_team",
         TARGET_COLUMN,
     }
 
