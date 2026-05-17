@@ -208,6 +208,20 @@ def add_hidden_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
     return output
 
 
+def is_rankable_momentum_event(df: pd.DataFrame) -> pd.Series:
+    description = df["event_description"].fillna("").astype(str).str.lower()
+    event_team = df.get("event_team", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    event_player = df.get("event_player", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+
+    return (
+        (df["seconds_remaining"] > 0)
+        & ~description.str.contains("end of", regex=False)
+        & ~description.str.contains("instant replay", regex=False)
+        & (event_team != "")
+        & (event_player != "")
+    )
+
+
 def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
     output = df.copy()
     output["abs_hidden_momentum"] = output["hidden_momentum_score"].abs()
@@ -215,10 +229,8 @@ def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFra
     report_candidates = output[
         (output["is_ignored_momentum_event"] == False)
         & (output["event_value"] != 0)
+        & is_rankable_momentum_event(output)
     ].copy()
-
-    if report_candidates.empty:
-        report_candidates = output.copy()
 
     columns = [
         "period",
