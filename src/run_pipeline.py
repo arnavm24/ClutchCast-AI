@@ -96,7 +96,7 @@ def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]
         ("Calculate hidden momentum", ["src/momentum.py"]),
         ("Calculate player swing impact", ["src/player_impact.py"]),
         ("Find turning points", ["src/turning_points.py"]),
-        ("Generate post-game recap", ["src/recap.py"]),
+        ("Generate post-game recap", ["src/recap.py"] + (["--game-id", args.game_id] if args.game_id else [])),
     ]
 
 
