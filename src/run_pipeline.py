@@ -38,8 +38,8 @@ def parse_args() -> argparse.Namespace:
         "--model",
         type=str,
         default="baseline",
-        choices=["baseline", "ml", "advanced"],
-        help="Prediction model to use: baseline, ml, or advanced.",
+        choices=["baseline", "ml", "advanced", "neural"],
+        help="Prediction model to use: baseline, ml, advanced, or neural.",
     )
 
     return parser.parse_args()
@@ -61,6 +61,12 @@ def build_prediction_step(args: argparse.Namespace) -> tuple[str, list[str]]:
         return (
             "Generate advanced ML win probability",
             ["src/predict_with_advanced_model.py"] + game_id_args,
+        )
+
+    if args.model == "neural":
+        return (
+            "Generate PyTorch neural network win probability",
+            ["src/predict_with_neural_network.py"] + game_id_args,
         )
 
     return (
