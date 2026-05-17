@@ -1,13 +1,10 @@
-﻿.venv/
+.venv/
 __pycache__/
 *.pyc
-data/raw/
-data/processed/
-models/
 .env
 
-reports/figures/
+data/
+models/
+reports/
 
-reports/*.csv
-
-reports/*.md
+*.json
