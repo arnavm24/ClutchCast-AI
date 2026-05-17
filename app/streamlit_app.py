@@ -72,9 +72,18 @@ def apply_custom_css() -> None:
         :root { --panel: #101621; --panel-soft: #151D2A; --line: #263244; --text: #F8FAFC; --muted: #94A3B8; }
         .stApp { background: radial-gradient(circle at top left, #162033 0, #070A12 34%, #05070D 100%); color: var(--text); }
         [data-testid="stSidebar"] { background-color: #070A12; border-right: 1px solid #1F2937; }
-        .block-container { padding-top: 1.25rem; padding-bottom: 2rem; max-width: 1500px; }
+        .block-container { padding-top: 1.15rem; padding-bottom: 2rem; max-width: 1500px; }
         h1, h2, h3 { letter-spacing: 0; }
         .eyebrow { color: #8EA0BA; font-size: .72rem; text-transform: uppercase; letter-spacing: .14em; font-weight: 700; }
+        .brand-header { display:flex; align-items:center; justify-content:space-between; gap: 18px; margin-bottom: 12px; }
+        .brand-left { display:flex; align-items:center; gap: 14px; }
+        .brand-mark { width: 54px; height: 54px; border-radius: 18px; position: relative; display:flex; align-items:center; justify-content:center; color:#F8FAFC; font-weight: 950; letter-spacing:-.08em; background: radial-gradient(circle at 30% 25%, #FDBA74 0, #F97316 38%, #1D4ED8 100%); box-shadow: 0 16px 45px rgba(29,78,216,.32); overflow:hidden; }
+        .brand-mark:before { content:""; position:absolute; inset: 10px; border: 2px solid rgba(255,255,255,.42); border-radius: 50%; }
+        .brand-mark:after { content:""; position:absolute; width: 92px; height: 2px; background: rgba(255,255,255,.38); transform: rotate(-28deg); }
+        .brand-cc { position:relative; z-index:2; font-size: 1.15rem; text-shadow: 0 2px 10px rgba(0,0,0,.5); }
+        .brand-title { font-size: 2.05rem; line-height:1; font-weight: 950; color:#F8FAFC; letter-spacing:-.03em; }
+        .brand-subtitle { margin-top: 5px; color:#9FB0C8; font-size:.88rem; }
+        .brand-badge { border:1px solid rgba(148,163,184,.2); background:rgba(15,23,42,.72); border-radius:999px; padding:8px 12px; color:#CBD5E1; font-size:.82rem; font-weight:700; }
         .hero-shell { border: 1px solid rgba(148,163,184,.22); background: linear-gradient(135deg, rgba(16,22,34,.96), rgba(6,10,18,.98)); border-radius: 20px; padding: 20px; box-shadow: 0 24px 80px rgba(0,0,0,.42); }
         .scoreboard { display: grid; grid-template-columns: 1fr 190px 1fr; gap: 18px; align-items: center; }
         .team-box { min-height: 188px; border: 1px solid rgba(148,163,184,.18); border-radius: 18px; padding: 18px; background: linear-gradient(145deg, rgba(255,255,255,.055), rgba(255,255,255,.02)); display: flex; align-items: center; gap: 18px; }
@@ -96,19 +105,27 @@ def apply_custom_css() -> None:
         .wp-bar { height: 24px; border-radius: 999px; overflow: hidden; display:flex; background:#111827; border:1px solid rgba(148,163,184,.22); }
         .wp-away, .wp-home { height: 100%; }
         .metric-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
-        .metric-card, .intel-card, .live-card { border: 1px solid rgba(148,163,184,.18); background: rgba(15,23,42,.78); border-radius: 16px; padding: 16px; min-height: 116px; }
-        .metric-label { color: #94A3B8; font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
-        .metric-value { color: #F8FAFC; font-size: 1.36rem; line-height: 1.15; font-weight: 900; margin-top: 8px; }
-        .metric-detail { color: #A7B4C8; font-size: .86rem; line-height: 1.35; margin-top: 8px; }
+        .metric-card, .intel-card, .live-card, .summary-card, .empty-card { border: 1px solid rgba(148,163,184,.18); background: rgba(15,23,42,.78); border-radius: 16px; padding: 16px; min-height: 116px; }
+        .metric-label, .summary-label { color: #94A3B8; font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; font-weight: 800; }
+        .metric-value, .summary-value { color: #F8FAFC; font-size: 1.36rem; line-height: 1.15; font-weight: 900; margin-top: 8px; }
+        .summary-value.big { font-size:1.7rem; }
+        .metric-detail, .summary-detail { color: #A7B4C8; font-size: .86rem; line-height: 1.35; margin-top: 8px; }
+        .summary-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 8px 0 18px; }
+        .tab-intro { color:#AEBBD0; margin: -4px 0 14px; max-width: 900px; }
+        .player-chip { display:flex; align-items:center; gap: 12px; }
+        .avatar { width:42px; height:42px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,#F97316,#2563EB); color:#fff; font-weight:950; letter-spacing:.02em; box-shadow: 0 12px 28px rgba(37,99,235,.25); flex:0 0 auto; }
+        .badge { display:inline-block; border:1px solid rgba(148,163,184,.24); border-radius:999px; padding:4px 8px; color:#CBD5E1; background:rgba(15,23,42,.82); font-size:.76rem; font-weight:800; }
         .intel-card { margin-bottom: 12px; }
         .intel-title { color: #E2E8F0; font-weight: 900; margin-bottom: 6px; }
         .intel-body { color: #AEBBD0; line-height: 1.4; font-size: .9rem; }
         .section-card { border: 1px solid rgba(148,163,184,.16); background: rgba(15,23,42,.62); border-radius: 18px; padding: 16px; }
+        .right-rail-spacer { height: 42px; }
+        .empty-card { min-height: auto; color:#AEBBD0; }
         div[data-testid="stMetric"] { background: rgba(15,23,42,.78); border: 1px solid rgba(148,163,184,.16); padding: 1rem; border-radius: 14px; }
         .stTabs [data-baseweb="tab-list"] { gap: .35rem; }
         .stTabs [data-baseweb="tab"] { background: rgba(15,23,42,.66); border-radius: 999px; color: #CBD5E1; padding: .5rem 1rem; }
         .stTabs [aria-selected="true"] { background: #E5E7EB !important; color: #111827 !important; }
-        @media (max-width: 980px) { .scoreboard { grid-template-columns: 1fr; } .metric-grid { grid-template-columns: 1fr 1fr; } .team-box.home { flex-direction: row; text-align:left; } }
+        @media (max-width: 980px) { .scoreboard { grid-template-columns: 1fr; } .metric-grid, .summary-grid { grid-template-columns: 1fr 1fr; } .team-box.home { flex-direction: row; text-align:left; } .brand-header { align-items:flex-start; flex-direction:column; } .right-rail-spacer { height: 0; } }
         </style>
         """
     )
@@ -153,6 +170,15 @@ def team_logo_url(team: str) -> str | None:
     if not team_id:
         return None
     return f"https://cdn.nba.com/logos/nba/{team_id}/primary/L/logo.svg"
+
+
+def initials(name: str) -> str:
+    parts = [part for part in str(name).replace(".", " ").split() if part]
+    if not parts:
+        return "--"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
 
 
 def get_available_game_ids() -> list[str]:
@@ -410,6 +436,39 @@ def render_metric_card(label: str, value: str, detail: str = "") -> str:
     )
 
 
+def render_summary_card(label: str, value: str, detail: str = "", big: bool = False, avatar: str | None = None) -> str:
+    value_class = "summary-value big" if big else "summary-value"
+    avatar_html = f'<div class="avatar">{esc(avatar)}</div>' if avatar else ""
+    return (
+        '<div class="summary-card">'
+        '<div class="player-chip">'
+        f'{avatar_html}'
+        '<div>'
+        f'<div class="summary-label">{esc(label)}</div>'
+        f'<div class="{value_class}">{esc(value)}</div>'
+        '</div>'
+        '</div>'
+        f'<div class="summary-detail">{esc(detail)}</div>'
+        '</div>'
+    )
+
+
+def render_summary_grid(cards: list[str]) -> None:
+    render_html('<div class="summary-grid">' + "".join(cards) + '</div>')
+
+
+def show_empty_report_card(title: str, command: str) -> None:
+    render_html(
+        f"""
+        <div class="empty-card">
+          <div class="summary-label">{esc(title)}</div>
+          <div class="summary-detail">Report data is not available yet.</div>
+          <div class="summary-detail"><code>{esc(command)}</code></div>
+        </div>
+        """
+    )
+
+
 def show_scoreboard(predictions: pd.DataFrame, home_team: str, away_team: str, model_label: str, champion_label: str) -> None:
     row = predictions.iloc[-1]
     home_score = int(row["home_score"])
@@ -566,6 +625,23 @@ def show_win_probability_chart(
     st.plotly_chart(fig, width="stretch", key=chart_key)
 
 
+def show_brand_header(game_id: str, home_team: str, away_team: str) -> None:
+    render_html(
+        f"""
+        <div class="brand-header">
+          <div class="brand-left">
+            <div class="brand-mark"><span class="brand-cc">CC</span></div>
+            <div>
+              <div class="brand-title">ClutchCast AI</div>
+              <div class="brand-subtitle">NBA Win Probability Platform · {esc(away_team)} at {esc(home_team)} · Game ID <code>{esc(game_id)}</code></div>
+            </div>
+          </div>
+          <div class="brand-badge">Historical Dashboard · Live Backend MVP Available</div>
+        </div>
+        """
+    )
+
+
 def show_game_overview(data: dict, predictions: pd.DataFrame, game_id: str, home_team: str, away_team: str, model_label: str, champion_label: str, champion_view: bool) -> None:
     show_scoreboard(predictions, home_team, away_team, model_label, champion_label)
     show_metric_cards(data, champion_label)
@@ -580,6 +656,7 @@ def show_game_overview(data: dict, predictions: pd.DataFrame, game_id: str, home
             chart_key="overview_win_probability_chart",
         )
     with right:
+        render_html('<div class="right-rail-spacer"></div>')
         show_game_intelligence_panel(data, predictions)
         show_live_mode_panel(game_id)
 
@@ -592,29 +669,127 @@ def show_game_insights(data: dict, game_id: str) -> None:
     elif not data["game_insights"].empty:
         st.dataframe(clean_table_columns(data["game_insights"]), width="stretch", hide_index=True)
     else:
-        st.warning("Game insights report was not found.")
-        st.code(f"python src/game_insights.py --game-id {game_id}", language="powershell")
+        show_empty_report_card("Game Insights", f"python src/game_insights.py --game-id {game_id}")
 
 
-def show_model_evaluation(data: dict, champion: dict) -> None:
+def show_turning_points_tab(predictions: pd.DataFrame, game_id: str) -> None:
+    turning_points = build_turning_points(predictions)
+    st.subheader("Turning Points")
+    render_html('<div class="tab-intro">The biggest win-probability swings reveal where the game actually bent, beyond the final score.</div>')
+
+    if turning_points.empty:
+        show_empty_report_card("Turning points", f"python src/turning_points.py --game-id {game_id}")
+        return
+
+    data = turning_points.copy()
+    data["abs_swing"] = data["wp_swing_pct"].abs()
+    biggest = data.sort_values("abs_swing", ascending=False).iloc[0]
+    major_swings = int((data["abs_swing"] >= 10).sum())
+    quarter_summary = data.groupby("period")["abs_swing"].sum().sort_values(ascending=False)
+    volatile_quarter = f"Q{int(quarter_summary.index[0])}" if not quarter_summary.empty and int(quarter_summary.index[0]) <= 4 else f"OT{int(quarter_summary.index[0]) - 4}"
+
+    cards = [
+        render_summary_card("Biggest Swing", f"{float(biggest['wp_swing_pct']):+.1f} pts", short_text(str(biggest["event_description"]), 110), big=True),
+        render_summary_card("Total Major Swings", str(major_swings), "Swings of at least 10 win-probability points."),
+        render_summary_card("Most Volatile Quarter", volatile_quarter, f"{quarter_summary.iloc[0]:.1f} combined swing points."),
+        render_summary_card("Key Play", str(biggest["event_player"]), short_text(str(biggest["event_description"]), 110), avatar=initials(str(biggest["event_player"]))),
+    ]
+    render_summary_grid(cards)
+    st.dataframe(clean_table_columns(turning_points), width="stretch", hide_index=True)
+
+
+def show_player_impact_tab(predictions: pd.DataFrame, game_id: str) -> None:
+    impact = build_player_impact(predictions)
+    st.subheader("Player Impact")
+    render_html('<div class="tab-intro">Player impact aggregates win-probability movement attached to tracked player events, with end-of-game correction rows excluded.</div>')
+
+    if impact.empty:
+        show_empty_report_card("Player impact", f"python src/player_impact.py --game-id {game_id}")
+        return
+
+    highest = impact.sort_values("total_absolute_swing_pct", ascending=False).iloc[0]
+    volatile = impact.sort_values("avg_absolute_swing_pct", ascending=False).iloc[0]
+    team_impact = impact.groupby("event_team", as_index=False)["total_absolute_swing_pct"].sum().sort_values("total_absolute_swing_pct", ascending=False)
+    top_team = team_impact.iloc[0]
+    total_events = int(impact["event_count"].sum())
+
+    cards = [
+        render_summary_card("Highest Impact Player", str(highest["event_player"]), f"{float(highest['total_absolute_swing_pct']):.1f} total swing pts · {highest['event_team']}", avatar=initials(str(highest["event_player"]))),
+        render_summary_card("Most Volatile Player", str(volatile["event_player"]), f"{float(volatile['avg_absolute_swing_pct']):.2f} avg swing pts/event", avatar=initials(str(volatile["event_player"]))),
+        render_summary_card("Top Team by Swing", str(top_team["event_team"]), f"{float(top_team['total_absolute_swing_pct']):.1f} total swing points."),
+        render_summary_card("Tracked Player Events", str(total_events), "Events with player, team, and valid WP movement context."),
+    ]
+    render_summary_grid(cards)
+    st.dataframe(clean_table_columns(impact), width="stretch", hide_index=True)
+
+
+def show_pressure_comebacks_tab(predictions: pd.DataFrame, game_id: str) -> None:
+    pressure = calculate_clutch_pressure(predictions).sort_values("clutch_pressure", ascending=False).head(15)
+    comeback = build_comeback_report(predictions)
+    st.subheader("Pressure & Comebacks")
+    render_html('<div class="tab-intro">Pressure combines score closeness, game time, and win-probability uncertainty; comeback reality highlights deficits that still had life.</div>')
+
+    if pressure.empty:
+        show_empty_report_card("Pressure and comeback data", f"python src/features.py --game-id {game_id}")
+        return
+
+    peak = pressure.iloc[0]
+    highest_comeback = None if comeback.empty else comeback.sort_values("comeback_probability_pct", ascending=False).iloc[0]
+    biggest_deficit = None if comeback.empty else comeback.sort_values("deficit", ascending=False).iloc[0]
+
+    cards = [
+        render_summary_card("Peak Clutch Pressure", f"{float(peak['clutch_pressure']):.1f}", f"Q{int(peak['period'])} · {format_nba_clock(peak['clock'])} · {short_text(str(peak['event_description']), 80)}", big=True),
+        render_summary_card("Highest Comeback Probability", "N/A" if highest_comeback is None else f"{float(highest_comeback['comeback_probability_pct']):.1f}%", "No comeback window found." if highest_comeback is None else f"{highest_comeback['trailing_team']} trailing by {int(highest_comeback['deficit'])}."),
+        render_summary_card("Biggest Deficit With Chance", "N/A" if biggest_deficit is None else str(int(biggest_deficit["deficit"])), "No eligible comeback deficit found." if biggest_deficit is None else f"{biggest_deficit['comeback_status']} comeback window."),
+        render_summary_card("Most Pressurized Moment", f"Q{int(peak['period'])}, {format_nba_clock(peak['clock'])}", short_text(str(peak["event_description"]), 100)),
+    ]
+    render_summary_grid(cards)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Clutch Pressure Detail")
+        st.dataframe(clean_table_columns(pressure), width="stretch", hide_index=True)
+    with col2:
+        st.markdown("### Comeback Reality Detail")
+        st.dataframe(clean_table_columns(comeback), width="stretch", hide_index=True)
+
+
+def show_model_evaluation(data: dict, champion: dict, game_id: str) -> None:
     st.subheader("Model Evaluation")
-    st.caption("Champion selection ranks models by lowest Brier score, then lowest log loss, highest ROC-AUC, and highest accuracy.")
+    render_html('<div class="tab-intro">The champion is selected by probability quality first, not by model complexity or name recognition.</div>')
 
     leaderboard = data["leaderboard"]
+    disagreements = data["model_disagreements"]
+    champion_label = champion.get("model_name", "Champion unavailable")
+
     if leaderboard.empty:
-        st.warning("Model leaderboard was not found.")
-        st.code("python src/compare_models.py --leaderboard", language="powershell")
+        show_empty_report_card("Model leaderboard", "python src/compare_models.py --leaderboard")
     else:
-        champion_key = champion.get("model_key")
+        best_brier = leaderboard.sort_values("brier_score", ascending=True).iloc[0]
+        best_auc = leaderboard.sort_values("roc_auc", ascending=False).iloc[0]
+        disagreement_peak = "Pending"
+        disagreement_detail = f"python src/compare_models.py --game-id {game_id}"
+        if not disagreements.empty and "max_model_disagreement_pct" in disagreements.columns:
+            peak = disagreements.sort_values("max_model_disagreement_pct", ascending=False).iloc[0]
+            disagreement_peak = f"{float(peak['max_model_disagreement_pct']):.1f} pts"
+            disagreement_detail = short_text(str(peak.get("event_description", "Model disagreement moment")), 100)
+
+        cards = [
+            render_summary_card("Champion Model", champion_label, "Selected by Brier, log loss, ROC-AUC, then accuracy."),
+            render_summary_card("Best Brier Score", f"{float(best_brier['brier_score']):.4f}", str(best_brier["model_name"])),
+            render_summary_card("Best ROC-AUC", f"{float(best_auc['roc_auc']):.4f}", str(best_auc["model_name"])),
+            render_summary_card("Disagreement Peak", disagreement_peak, disagreement_detail),
+        ]
+        render_summary_grid(cards)
+
         display = leaderboard.copy()
-        display["Champion"] = display["model_key"].eq(champion_key).map({True: "Yes", False: ""})
+        display["Champion"] = display["model_key"].eq(champion.get("model_key")).map({True: "Yes", False: ""})
         st.dataframe(clean_table_columns(display), width="stretch", hide_index=True)
 
     summary = data["comparison_summary"]
-    disagreements = data["model_disagreements"]
     if summary.empty or disagreements.empty:
         st.warning("Per-game four-model comparison files were not found.")
-        st.code("python src/compare_models.py --game-id YOUR_GAME_ID", language="powershell")
+        st.code(f"python src/compare_models.py --game-id {game_id}", language="powershell")
         return
 
     row = summary.iloc[0]
@@ -666,9 +841,7 @@ def main() -> None:
     model_label = MODE_LABELS.get(model_key, model_key)
     champion_view = model_key == champion_key
 
-    render_html('<div class="eyebrow">NBA Win Probability Platform</div>')
-    st.title("ClutchCast AI")
-    st.caption(f"{away_team} at {home_team} · Game ID `{selected_game_id}`")
+    show_brand_header(selected_game_id, home_team, away_team)
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Game Overview", "Win Probability", "Game Insights", "Turning Points", "Player Impact", "Pressure & Comebacks", "Model Evaluation", "Game Recap"
@@ -687,19 +860,13 @@ def main() -> None:
     with tab3:
         show_game_insights(data, selected_game_id)
     with tab4:
-        st.dataframe(clean_table_columns(build_turning_points(predictions)), width="stretch", hide_index=True)
+        show_turning_points_tab(predictions, selected_game_id)
     with tab5:
-        st.dataframe(clean_table_columns(build_player_impact(predictions)), width="stretch", hide_index=True)
+        show_player_impact_tab(predictions, selected_game_id)
     with tab6:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Clutch Pressure")
-            st.dataframe(clean_table_columns(calculate_clutch_pressure(predictions).sort_values("clutch_pressure", ascending=False).head(15)), width="stretch", hide_index=True)
-        with col2:
-            st.subheader("Comeback Reality")
-            st.dataframe(clean_table_columns(build_comeback_report(predictions)), width="stretch", hide_index=True)
+        show_pressure_comebacks_tab(predictions, selected_game_id)
     with tab7:
-        show_model_evaluation(data, champion)
+        show_model_evaluation(data, champion, selected_game_id)
     with tab8:
         st.markdown(data["recap"])
 
