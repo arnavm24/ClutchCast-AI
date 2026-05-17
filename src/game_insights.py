@@ -28,6 +28,33 @@ def normalize_game_id(game_id: str) -> str:
     return str(game_id).zfill(10)
 
 
+def format_nba_clock(clock_value) -> str:
+    clock = str(clock_value)
+    if not clock.startswith("PT"):
+        return clock
+
+    clock = clock.replace("PT", "")
+    minutes = 0
+    seconds = 0.0
+
+    if "M" in clock:
+        minutes_part, clock = clock.split("M")
+        minutes = int(minutes_part)
+
+    if "S" in clock:
+        seconds = float(clock.replace("S", ""))
+
+    if seconds.is_integer():
+        return f"{minutes}:{int(seconds):02d}"
+
+    return f"{minutes}:{seconds:04.1f}"
+
+
+def format_period_clock(period: int, clock_value) -> str:
+    label = f"Q{period}" if period <= 4 else f"OT{period - 4}"
+    return f"{label}, {format_nba_clock(clock_value)}"
+
+
 def load_game_state(game_id: str) -> pd.DataFrame:
     path = PROCESSED_DIR / f"game_state_{game_id}.csv"
     if not path.exists():
@@ -90,6 +117,36 @@ def is_rankable_play(df: pd.DataFrame) -> pd.Series:
         & ~timeout_or_sub
         & (event_team != "")
         & (event_player != "")
+    )
+
+
+def infer_home_away_teams(predictions: pd.DataFrame) -> tuple[str | None, str | None]:
+    data = predictions.copy().sort_values(["game_id", "event_num"])
+    data["home_score_delta"] = data.groupby("game_id")["home_score"].diff().fillna(0).clip(lower=0)
+    data["away_score_delta"] = data.groupby("game_id")["away_score"].diff().fillna(0).clip(lower=0)
+    data["event_team"] = data["event_team"].fillna("").astype(str).str.strip()
+
+    home_candidates = set(data.loc[(data["home_score_delta"] > 0) & (data["event_team"] != ""), "event_team"])
+    away_candidates = set(data.loc[(data["away_score_delta"] > 0) & (data["event_team"] != ""), "event_team"])
+
+    if len(home_candidates) == 1 and len(away_candidates) == 1:
+        home_team = next(iter(home_candidates))
+        away_team = next(iter(away_candidates))
+        if home_team != away_team:
+            return home_team, away_team
+
+    return None, None
+
+
+def row_identity(row: pd.Series | None) -> tuple | None:
+    if row is None:
+        return None
+    return (
+        row.get("game_id", ""),
+        row.get("event_num", row.name),
+        row.get("period", ""),
+        row.get("clock", ""),
+        row.get("event_description", ""),
     )
 
 
@@ -158,25 +215,65 @@ def build_game_drama_score(predictions: pd.DataFrame, winner: str) -> tuple[int,
     return score, explanation
 
 
-def identify_swing_play(predictions: pd.DataFrame, winner: str, play_type: str) -> pd.Series | None:
+def best_row(rows: pd.DataFrame, sort_column: str, ascending: bool, excluded_identity: tuple | None = None) -> pd.Series | None:
+    if excluded_identity is not None and not rows.empty:
+        rows = rows[rows.apply(lambda row: row_identity(row) != excluded_identity, axis=1)]
+
+    if rows.empty:
+        return None
+
+    return rows.sort_values(sort_column, ascending=ascending).iloc[0]
+
+
+def identify_swing_plays(predictions: pd.DataFrame, winner: str, home_team: str | None, away_team: str | None) -> tuple[pd.Series | None, pd.Series | None]:
     data = predictions[is_rankable_play(predictions)].copy()
     if data.empty:
-        return None
+        return None, None
+
+    winner_team = home_team if winner == "home" else away_team
+    loser_team = away_team if winner == "home" else home_team
+    loser = "away" if winner == "home" else "home"
 
     data["winning_team_wp_swing"] = data["wp_change"] if winner == "home" else -data["wp_change"]
-    loser = "away" if winner == "home" else "home"
     data["losing_team_wp_swing"] = data["wp_change"] if loser == "home" else -data["wp_change"]
 
-    if play_type == "valuable":
-        data = data[data["winning_team_wp_swing"] > 0]
-        if data.empty:
-            return None
-        return data.sort_values("winning_team_wp_swing", ascending=False).iloc[0]
+    valuable_candidates = data[data["winning_team_wp_swing"] > 0].copy()
+    damaging_candidates = data[data["losing_team_wp_swing"] < 0].copy()
 
-    data = data[data["losing_team_wp_swing"] < 0]
-    if data.empty:
-        return None
-    return data.sort_values("losing_team_wp_swing", ascending=True).iloc[0]
+    valuable_preferred = valuable_candidates
+    if winner_team:
+        preferred = valuable_candidates[valuable_candidates["event_team"] == winner_team]
+        if not preferred.empty:
+            valuable_preferred = preferred
+
+    damaging_preferred = damaging_candidates
+    if loser_team:
+        preferred = damaging_candidates[damaging_candidates["event_team"] == loser_team]
+        if not preferred.empty:
+            damaging_preferred = preferred
+
+    valuable_play = best_row(valuable_preferred, "winning_team_wp_swing", ascending=False)
+    damaging_play = best_row(damaging_preferred, "losing_team_wp_swing", ascending=True)
+
+    if row_identity(valuable_play) == row_identity(damaging_play):
+        valuable_identity = row_identity(valuable_play)
+        replacement = best_row(
+            damaging_preferred,
+            "losing_team_wp_swing",
+            ascending=True,
+            excluded_identity=valuable_identity,
+        )
+        if replacement is None and not damaging_candidates.equals(damaging_preferred):
+            replacement = best_row(
+                damaging_candidates,
+                "losing_team_wp_swing",
+                ascending=True,
+                excluded_identity=valuable_identity,
+            )
+        if replacement is not None:
+            damaging_play = replacement
+
+    return valuable_play, damaging_play
 
 
 def add_score_deltas(game_state: pd.DataFrame) -> pd.DataFrame:
@@ -228,9 +325,9 @@ def format_play(row: pd.Series | None, swing_column: str) -> tuple[str, str]:
         return "No eligible play found.", ""
 
     swing_pct = float(row[swing_column]) * 100
-    clock = str(row.get("clock", ""))
+    when = format_period_clock(int(row["period"]), row.get("clock", ""))
     details = (
-        f"Q{int(row['period'])} {clock}, {row['event_team']} - {row['event_player']}: "
+        f"{when}, {row['event_team']} - {row['event_player']}: "
         f"{row['event_description']} ({swing_pct:+.1f} WP points)"
     )
     return str(row["event_description"]), details
@@ -248,9 +345,11 @@ def build_insights(game_id: str, game_state: pd.DataFrame, predictions: pd.DataF
         winner = "tie"
         loser = "tie"
 
-    drama_score, drama_explanation = build_game_drama_score(predictions, winner if winner != "tie" else "home")
-    valuable_play = identify_swing_play(predictions, winner if winner != "tie" else "home", "valuable")
-    damaging_play = identify_swing_play(predictions, winner if winner != "tie" else "home", "damaging")
+    home_team, away_team = infer_home_away_teams(predictions)
+    effective_winner = winner if winner != "tie" else "home"
+
+    drama_score, drama_explanation = build_game_drama_score(predictions, effective_winner)
+    valuable_play, damaging_play = identify_swing_plays(predictions, effective_winner, home_team, away_team)
     clutch_summary, clutch_scorers = build_clutch_scoring_summary(game_state)
 
     valuable_value, valuable_details = format_play(valuable_play, "winning_team_wp_swing")
