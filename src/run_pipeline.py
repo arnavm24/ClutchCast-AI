@@ -34,6 +34,12 @@ def parse_args() -> argparse.Namespace:
         help="Season type to search if no game ID is provided.",
     )
 
+    parser.add_argument(
+        "--use-ml",
+        action="store_true",
+        help="Use the trained ML model for win probability predictions.",
+    )
+
     return parser.parse_args()
 
 
@@ -46,10 +52,18 @@ def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]
         load_command.extend(["--season", args.season])
         load_command.extend(["--season-type", args.season_type])
 
+    prediction_step = (
+        "Generate ML win probability",
+        ["src/predict_with_model.py"],
+    ) if args.use_ml else (
+        "Generate baseline win probability",
+        ["src/train_baseline.py"],
+    )
+
     return [
         ("Load NBA play-by-play data", load_command),
         ("Build game-state table", ["src/game_state.py"]),
-        ("Generate baseline win probability", ["src/train_baseline.py"]),
+        prediction_step,
         ("Create win probability chart", ["src/predict_game.py"]),
         ("Add clutch pressure features", ["src/features.py"]),
         ("Build comeback reality meter", ["src/comeback_meter.py"]),
@@ -85,6 +99,11 @@ def main() -> None:
     pipeline_steps = build_pipeline_steps(args)
 
     print("\nStarting ClutchCast AI full pipeline...")
+
+    if args.use_ml:
+        print("Prediction mode: ML model")
+    else:
+        print("Prediction mode: Rule-based baseline")
 
     for step_name, command_parts in pipeline_steps:
         run_step(step_name, command_parts)
