@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -8,35 +9,44 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_predictions() -> pd.DataFrame:
-    """
-    Loads baseline prediction data.
-    """
-    files = list(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build player win-probability swing report.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
+
+
+def get_prediction_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"baseline_predictions_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing baseline predictions for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/train_baseline.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
 
     if not files:
         raise FileNotFoundError(
             "No baseline prediction files found. Run src/train_baseline.py first."
         )
 
-    input_path = files[0]
-    print(f"Loading predictions from: {input_path}")
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest baseline predictions file: {input_path}")
+    return input_path
 
+
+def load_predictions(game_id: str | None = None) -> pd.DataFrame:
+    input_path = get_prediction_path(game_id)
+    print(f"Loading predictions from: {input_path}")
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
 def calculate_player_swing_impact(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculates each player's win-probability swing impact.
-
-    Positive impact means the player's events increased their team's chance
-    of winning or created a favorable swing.
-
-    For V1:
-    - If the event team is the home team, positive home WP change helps them.
-    - If the event team is the away team, negative home WP change helps them.
-    """
-
     required_columns = [
         "event_team",
         "event_player",
@@ -52,17 +62,12 @@ def calculate_player_swing_impact(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Missing required columns: {missing}")
 
     data = df.copy()
-
-    # Remove rows without a player name.
     data = data[data["event_player"].notna()]
     data = data[data["event_player"].astype(str).str.strip() != ""]
 
     if data.empty:
         raise ValueError("No player events found in prediction data.")
 
-    # Infer home team as the team attached to home-scoring events is not always direct,
-    # so for this V1 we rank raw WP swings tied to player events.
-    # Later, we can improve by mapping home/away team IDs exactly.
     data["positive_swing_pct"] = (data["wp_change"] * 100).round(2)
     data["absolute_swing_pct"] = (data["abs_wp_change"] * 100).round(2)
 
@@ -97,9 +102,6 @@ def calculate_player_swing_impact(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_top_player_events(df: pd.DataFrame, player_name: str, top_n: int = 5) -> pd.DataFrame:
-    """
-    Shows the player's biggest individual swing events.
-    """
     player_events = df[
         df["event_player"].astype(str).str.lower() == player_name.lower()
     ].copy()
@@ -132,7 +134,8 @@ def get_top_player_events(df: pd.DataFrame, player_name: str, top_n: int = 5) ->
 
 
 def main() -> None:
-    predictions = load_predictions()
+    args = parse_args()
+    predictions = load_predictions(args.game_id)
     game_id = str(predictions["game_id"].iloc[0]).zfill(10)
 
     player_impact = calculate_player_swing_impact(predictions)
