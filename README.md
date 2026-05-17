@@ -17,7 +17,7 @@ Most sports prediction demos stop at a cool chart. ClutchCast AI is designed to 
 - `pandas` for state building, feature engineering, and reports
 - `scikit-learn` for logistic regression, random forest, scaling, and metrics
 - `PyTorch` for a tabular neural-network benchmark
-- `Streamlit` and `Plotly` for the historical dashboard
+- `Streamlit` and `Plotly` for the historical dashboard and Live Game tab
 - `Flask` and `Flask-SocketIO` for the local live prediction MVP
 
 ## Modeling Approach
@@ -68,10 +68,11 @@ No raw text columns, identifiers, final result leakage, or future score changes 
 
 ## Dashboard Features
 
-The Streamlit dashboard is a historical game-center experience. It includes:
+The Streamlit dashboard includes:
 
 - Game Overview with hero scoreboard, team win probabilities, model status, and top intelligence cards
 - Champion Win Probability Timeline
+- Live Game tab that polls the Flask backend for live score/probability updates
 - Game Insights: drama score, most valuable play, most damaging play, and clutch-time scoring
 - Turning Points
 - Player Impact
@@ -79,7 +80,7 @@ The Streamlit dashboard is a historical game-center experience. It includes:
 - Game Recap
 - Model Evaluation with leaderboard, Brier score, log loss, ROC-AUC, accuracy, final model probabilities, and disagreement moments
 
-Live prediction is not embedded directly into Streamlit yet. The live MVP runs through the Flask/SocketIO backend.
+Historical tabs use saved CSV/report files. The Live Game tab polls the backend endpoint `GET /predict/<game_id>?mode=live`.
 
 ## Local Setup
 
@@ -125,15 +126,27 @@ python src/recap.py --game-id YOUR_GAME_ID
 streamlit run app/streamlit_app.py
 ```
 
-## Live Backend MVP
+## Live Game Mode
 
-The backend is intentionally local-first and polling-based. It is not a production sports-data service. Streamlit remains the historical dashboard; live updates are served by Flask/SocketIO.
-
-Run it:
+Terminal 1:
 
 ```powershell
 python backend/app.py
 ```
+
+Terminal 2:
+
+```powershell
+streamlit run app/streamlit_app.py
+```
+
+Then open the **Live Game** tab, enter the live NBA `GAME_ID`, click **Fetch Live Prediction**, and enable **Auto-refresh every 10 seconds** to keep polling the backend.
+
+The Live Game tab displays the current period, clock, score, home/away win probability, last play, champion model, and backend status. Live accuracy and update speed depend on NBA API availability and delay.
+
+## Live Backend MVP
+
+The backend is intentionally local-first and polling-based. It is not a production sports-data service.
 
 Health check:
 
@@ -171,7 +184,7 @@ The backend already shares the Champion Model inference path with historical ana
 
 - Accuracy depends heavily on training data size and season coverage.
 - `nba_api` is unofficial and can be slow or temporarily unavailable.
-- The Streamlit app is historical-first; live mode is available through the backend MVP.
+- Live mode is local-first and polling-based, not a production low-latency sports feed.
 - Possession, lineup, team-strength, rest, injuries, and betting-market context are future improvements.
 - Team logos use the public NBA static logo path when the abbreviation is recognized, and fall back gracefully when unavailable.
 - The neural network is a benchmark, not assumed to be best. The champion is whatever wins on probability metrics.
@@ -202,6 +215,6 @@ python src/run_pipeline.py --game-id YOUR_GAME_ID --model neural
 python src/compare_models.py --game-id YOUR_GAME_ID
 python src/game_insights.py --game-id YOUR_GAME_ID
 python src/recap.py --game-id YOUR_GAME_ID
-streamlit run app/streamlit_app.py
 python backend/app.py
+streamlit run app/streamlit_app.py
 ```
