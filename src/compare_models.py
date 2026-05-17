@@ -9,6 +9,20 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+MODEL_FILES = {
+    "baseline": "baseline_predictions_{game_id}.csv",
+    "logistic_ml": "ml_predictions_{game_id}.csv",
+    "advanced_ml": "advanced_predictions_{game_id}.csv",
+}
+
+
+MODEL_LABELS = {
+    "baseline": "Baseline",
+    "logistic_ml": "Logistic ML",
+    "advanced_ml": "Advanced ML",
+}
+
+
 def get_available_game_ids() -> list[str]:
     baseline_ids = {
         file.stem.replace("baseline_predictions_", "")
@@ -20,31 +34,47 @@ def get_available_game_ids() -> list[str]:
         for file in PROCESSED_DIR.glob("ml_predictions_*.csv")
     }
 
-    return sorted(baseline_ids.intersection(ml_ids))
+    advanced_ids = {
+        file.stem.replace("advanced_predictions_", "")
+        for file in PROCESSED_DIR.glob("advanced_predictions_*.csv")
+    }
+
+    return sorted(baseline_ids.intersection(ml_ids).intersection(advanced_ids))
 
 
-def load_predictions(game_id: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    baseline_path = PROCESSED_DIR / f"baseline_predictions_{game_id}.csv"
-    ml_path = PROCESSED_DIR / f"ml_predictions_{game_id}.csv"
+def load_prediction_file(game_id: str, model_key: str) -> pd.DataFrame:
+    filename = MODEL_FILES[model_key].format(game_id=game_id)
+    path = PROCESSED_DIR / filename
 
-    if not baseline_path.exists():
-        raise FileNotFoundError(f"Missing baseline predictions: {baseline_path}")
+    if not path.exists():
+        raise FileNotFoundError(f"Missing prediction file: {path}")
 
-    if not ml_path.exists():
-        raise FileNotFoundError(f"Missing ML predictions: {ml_path}")
-
-    baseline = pd.read_csv(baseline_path, dtype={"game_id": str})
-    ml = pd.read_csv(ml_path, dtype={"game_id": str})
-
-    return baseline, ml
+    return pd.read_csv(path, dtype={"game_id": str})
 
 
-def compare_predictions(baseline: pd.DataFrame, ml: pd.DataFrame) -> pd.DataFrame:
-    if len(baseline) != len(ml):
-        raise ValueError(
-            f"Prediction files have different lengths: "
-            f"baseline={len(baseline)}, ml={len(ml)}"
-        )
+def load_predictions(game_id: str) -> dict[str, pd.DataFrame]:
+    return {
+        model_key: load_prediction_file(game_id, model_key)
+        for model_key in MODEL_FILES
+    }
+
+
+def validate_prediction_lengths(predictions: dict[str, pd.DataFrame]) -> None:
+    lengths = {
+        model_key: len(df)
+        for model_key, df in predictions.items()
+    }
+
+    if len(set(lengths.values())) != 1:
+        raise ValueError(f"Prediction files have different lengths: {lengths}")
+
+
+def compare_predictions(predictions: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    validate_prediction_lengths(predictions)
+
+    baseline = predictions["baseline"]
+    logistic_ml = predictions["logistic_ml"]
+    advanced_ml = predictions["advanced_ml"]
 
     comparison = pd.DataFrame()
 
@@ -59,23 +89,43 @@ def compare_predictions(baseline: pd.DataFrame, ml: pd.DataFrame) -> pd.DataFram
     comparison["event_description"] = baseline["event_description"]
 
     comparison["baseline_home_win_prob_pct"] = baseline["home_win_prob_pct"]
-    comparison["ml_home_win_prob_pct"] = ml["home_win_prob_pct"]
+    comparison["logistic_ml_home_win_prob_pct"] = logistic_ml["home_win_prob_pct"]
+    comparison["advanced_ml_home_win_prob_pct"] = advanced_ml["home_win_prob_pct"]
 
-    comparison["probability_difference_pct"] = (
-        comparison["ml_home_win_prob_pct"]
+    comparison["logistic_minus_baseline_pct"] = (
+        comparison["logistic_ml_home_win_prob_pct"]
         - comparison["baseline_home_win_prob_pct"]
     ).round(2)
 
-    comparison["absolute_difference_pct"] = (
-        comparison["probability_difference_pct"].abs()
+    comparison["advanced_minus_baseline_pct"] = (
+        comparison["advanced_ml_home_win_prob_pct"]
+        - comparison["baseline_home_win_prob_pct"]
     ).round(2)
 
-    comparison["baseline_wp_change_pct"] = (baseline["wp_change"] * 100).round(2)
-    comparison["ml_wp_change_pct"] = (ml["wp_change"] * 100).round(2)
-
-    comparison["wp_change_difference_pct"] = (
-        comparison["ml_wp_change_pct"] - comparison["baseline_wp_change_pct"]
+    comparison["advanced_minus_logistic_pct"] = (
+        comparison["advanced_ml_home_win_prob_pct"]
+        - comparison["logistic_ml_home_win_prob_pct"]
     ).round(2)
+
+    comparison["abs_logistic_minus_baseline_pct"] = (
+        comparison["logistic_minus_baseline_pct"].abs()
+    ).round(2)
+
+    comparison["abs_advanced_minus_baseline_pct"] = (
+        comparison["advanced_minus_baseline_pct"].abs()
+    ).round(2)
+
+    comparison["abs_advanced_minus_logistic_pct"] = (
+        comparison["advanced_minus_logistic_pct"].abs()
+    ).round(2)
+
+    comparison["max_model_disagreement_pct"] = comparison[
+        [
+            "abs_logistic_minus_baseline_pct",
+            "abs_advanced_minus_baseline_pct",
+            "abs_advanced_minus_logistic_pct",
+        ]
+    ].max(axis=1)
 
     return comparison
 
@@ -86,21 +136,26 @@ def build_summary(comparison: pd.DataFrame) -> pd.DataFrame:
     summary = {
         "game_id": str(final_row["game_id"]).zfill(10),
         "rows_compared": len(comparison),
-        "average_absolute_difference_pct": comparison[
-            "absolute_difference_pct"
-        ].mean().round(2),
-        "maximum_absolute_difference_pct": comparison[
-            "absolute_difference_pct"
-        ].max().round(2),
-        "average_signed_difference_pct": comparison[
-            "probability_difference_pct"
-        ].mean().round(2),
+        "avg_logistic_vs_baseline_diff_pct": round(
+            comparison["abs_logistic_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_advanced_vs_baseline_diff_pct": round(
+            comparison["abs_advanced_minus_baseline_pct"].mean(), 2
+        ),
+        "avg_advanced_vs_logistic_diff_pct": round(
+            comparison["abs_advanced_minus_logistic_pct"].mean(), 2
+        ),
+        "max_model_disagreement_pct": round(
+            comparison["max_model_disagreement_pct"].max(), 2
+        ),
         "baseline_final_home_win_prob_pct": final_row[
             "baseline_home_win_prob_pct"
         ],
-        "ml_final_home_win_prob_pct": final_row["ml_home_win_prob_pct"],
-        "final_probability_difference_pct": final_row[
-            "probability_difference_pct"
+        "logistic_ml_final_home_win_prob_pct": final_row[
+            "logistic_ml_home_win_prob_pct"
+        ],
+        "advanced_ml_final_home_win_prob_pct": final_row[
+            "advanced_ml_home_win_prob_pct"
         ],
         "final_home_score": int(final_row["home_score"]),
         "final_away_score": int(final_row["away_score"]),
@@ -124,13 +179,16 @@ def get_biggest_disagreements(
         "event_player",
         "event_description",
         "baseline_home_win_prob_pct",
-        "ml_home_win_prob_pct",
-        "probability_difference_pct",
-        "absolute_difference_pct",
+        "logistic_ml_home_win_prob_pct",
+        "advanced_ml_home_win_prob_pct",
+        "logistic_minus_baseline_pct",
+        "advanced_minus_baseline_pct",
+        "advanced_minus_logistic_pct",
+        "max_model_disagreement_pct",
     ]
 
     return (
-        comparison.sort_values("absolute_difference_pct", ascending=False)
+        comparison.sort_values("max_model_disagreement_pct", ascending=False)
         [columns]
         .head(top_n)
         .reset_index(drop=True)
@@ -139,7 +197,7 @@ def get_biggest_disagreements(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Compare baseline and ML win probability predictions."
+        description="Compare baseline, logistic ML, and advanced ML predictions."
     )
 
     parser.add_argument(
@@ -166,9 +224,10 @@ def main() -> None:
 
     if not available_game_ids:
         raise FileNotFoundError(
-            "No games found with both baseline and ML predictions. Run:\n"
-            "python src/run_pipeline.py --game-id YOUR_GAME_ID\n"
-            "python src/run_pipeline.py --game-id YOUR_GAME_ID --use-ml"
+            "No games found with baseline, logistic ML, and advanced ML predictions. Run:\n"
+            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model baseline\n"
+            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model ml\n"
+            "python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced"
         )
 
     if args.game_id:
@@ -178,14 +237,14 @@ def main() -> None:
 
     if game_id not in available_game_ids:
         raise ValueError(
-            f"Game {game_id} does not have both baseline and ML predictions.\n"
+            f"Game {game_id} does not have all three prediction files.\n"
             f"Available game IDs: {available_game_ids}"
         )
 
     print(f"Comparing models for game: {game_id}")
 
-    baseline, ml = load_predictions(game_id)
-    comparison = compare_predictions(baseline, ml)
+    predictions = load_predictions(game_id)
+    comparison = compare_predictions(predictions)
 
     summary = build_summary(comparison)
     disagreements = get_biggest_disagreements(comparison, top_n=args.top_n)
