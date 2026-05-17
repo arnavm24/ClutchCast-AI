@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -8,30 +9,44 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_predictions() -> pd.DataFrame:
-    """
-    Loads the baseline win probability predictions file.
-    """
-    files = list(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Find biggest win-probability turning points.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
+
+
+def get_prediction_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"baseline_predictions_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing baseline predictions for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/train_baseline.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
 
     if not files:
         raise FileNotFoundError(
             "No baseline prediction files found. Run src/train_baseline.py first."
         )
 
-    input_path = files[0]
-    print(f"Loading predictions from: {input_path}")
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest baseline predictions file: {input_path}")
+    return input_path
 
+
+def load_predictions(game_id: str | None = None) -> pd.DataFrame:
+    input_path = get_prediction_path(game_id)
+    print(f"Loading predictions from: {input_path}")
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
 def find_turning_points(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    """
-    Finds the biggest win-probability swings in a game.
-
-    A turning point is defined as a play/event where the home team's
-    win probability changed the most compared to the previous event.
-    """
     required_columns = [
         "game_id",
         "period",
@@ -65,7 +80,6 @@ def find_turning_points(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
         turning_points["wp_after_pct"] - turning_points["wp_before_pct"]
     ).round(1)
 
-    # Ignore events with no real win probability movement.
     turning_points = turning_points[turning_points["abs_wp_change"] > 0]
 
     turning_points = turning_points.sort_values(
@@ -91,7 +105,8 @@ def find_turning_points(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
 
 
 def main() -> None:
-    predictions = load_predictions()
+    args = parse_args()
+    predictions = load_predictions(args.game_id)
     game_id = str(predictions["game_id"].iloc[0]).zfill(10)
 
     turning_points = find_turning_points(predictions, top_n=10)
