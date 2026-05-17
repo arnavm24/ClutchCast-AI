@@ -1,5 +1,4 @@
 from pathlib import Path
-import json
 import sys
 
 import pandas as pd
@@ -12,7 +11,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
 
-from champion_inference import get_prediction_file_prefix, load_champion_metadata
+from champion_inference import load_champion_metadata
 
 
 PROCESSED_DIR = Path("data/processed")
@@ -170,6 +169,10 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "log_loss": "Log Loss",
         "roc_auc": "ROC-AUC",
         "accuracy": "Accuracy",
+        "total_raw_home_wp_swing_pct": "Total Home WP Swing",
+        "total_absolute_swing_pct": "Total Swing Impact",
+        "avg_absolute_swing_pct": "Avg Swing Impact",
+        "event_count": "Events",
         "baseline_home_win_prob_pct": "Baseline Home Win Probability",
         "logistic_ml_home_win_prob_pct": "Logistic ML Home Win Probability",
         "advanced_ml_home_win_prob_pct": "Random Forest Home Win Probability",
