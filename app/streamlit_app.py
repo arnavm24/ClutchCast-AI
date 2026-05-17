@@ -3,6 +3,7 @@ import html
 import re
 import sys
 import textwrap
+from urllib.parse import quote
 
 import pandas as pd
 import plotly.express as px
@@ -24,6 +25,23 @@ DEFAULT_HOME_COLOR = "#3B82F6"
 DEFAULT_AWAY_COLOR = "#EF4444"
 CHART_AWAY_COLOR = "#38BDF8"
 CHART_HOME_COLOR = "#F43F5E"
+
+CLUTCHCAST_ICON_SVG = """
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="g" cx="30%" cy="25%" r="80%">
+      <stop offset="0" stop-color="#FDBA74"/>
+      <stop offset="0.42" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#070A12"/>
+  <circle cx="32" cy="32" r="23" fill="url(#g)"/>
+  <path d="M14 34h36M31 9c6 12 6 34 0 46M13 25c12 5 26 5 38 0M13 43c12-5 26-5 38 0" stroke="rgba(255,255,255,.48)" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <text x="32" y="39" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="900" fill="#F8FAFC">CC</text>
+</svg>
+""".strip()
+CLUTCHCAST_ICON_DATA_URL = "data:image/svg+xml;charset=utf-8," + quote(CLUTCHCAST_ICON_SVG)
 
 MODE_LABELS = {
     "baseline": "Baseline Model",
@@ -61,7 +79,7 @@ TEAM_COLORS = {
     "UTA": "#002B5C", "WAS": "#002B5C",
 }
 
-st.set_page_config(page_title="ClutchCast AI", page_icon="🏀", layout="wide")
+st.set_page_config(page_title="ClutchCast AI", page_icon=CLUTCHCAST_ICON_DATA_URL, layout="wide")
 
 
 def render_html(markup: str) -> None:
@@ -75,10 +93,10 @@ def apply_custom_css() -> None:
         :root { --panel: #101621; --panel-soft: #151D2A; --line: #263244; --text: #F8FAFC; --muted: #94A3B8; }
         .stApp { background: radial-gradient(circle at top left, #162033 0, #070A12 34%, #05070D 100%); color: var(--text); }
         [data-testid="stSidebar"] { background-color: #070A12; border-right: 1px solid #1F2937; }
-        .block-container { padding-top: 2.45rem; padding-bottom: 2rem; max-width: 1500px; }
+        .block-container { padding-top: 3.15rem; padding-bottom: 2rem; max-width: 1500px; }
         h1, h2, h3 { letter-spacing: 0; }
         .eyebrow { color: #8EA0BA; font-size: .72rem; text-transform: uppercase; letter-spacing: .14em; font-weight: 700; }
-        .brand-header { display:flex; align-items:center; justify-content:space-between; gap: 18px; margin: .35rem 0 16px; padding-top: 2px; }
+        .brand-header { display:flex; align-items:center; justify-content:space-between; gap: 18px; margin: .8rem 0 18px; padding-top: 2px; }
         .brand-left { display:flex; align-items:center; gap: 14px; }
         .brand-mark { width: 54px; height: 54px; border-radius: 18px; position: relative; display:flex; align-items:center; justify-content:center; color:#F8FAFC; font-weight: 950; letter-spacing:-.08em; background: radial-gradient(circle at 30% 25%, #FDBA74 0, #F97316 38%, #1D4ED8 100%); box-shadow: 0 16px 45px rgba(29,78,216,.32); overflow:hidden; }
         .brand-mark:before { content:""; position:absolute; inset: 10px; border: 2px solid rgba(255,255,255,.42); border-radius: 50%; }
@@ -610,13 +628,56 @@ def show_live_mode_panel(game_id: str) -> None:
     )
 
 
+def add_quarter_markers(fig, max_elapsed: float) -> None:
+    markers = [
+        (12, "Q1"),
+        (24, "Q2 / Halftime"),
+        (36, "Q3"),
+        (48, "Q4 / End Reg."),
+    ]
+    for x_value, label in markers:
+        if max_elapsed + 0.5 >= x_value:
+            fig.add_vline(
+                x=x_value,
+                line_dash="dash",
+                line_color="rgba(226,232,240,.42)",
+                line_width=1,
+                annotation_text=label,
+                annotation_position="top left",
+                annotation_font_size=11,
+                annotation_font_color="#CBD5E1",
+            )
+
+    if max_elapsed > 48.5:
+        overtime_end = 53
+        overtime_number = 1
+        while overtime_end <= max_elapsed + 0.5:
+            label = "OT" if overtime_number == 1 else f"{overtime_number}OT"
+            fig.add_vline(
+                x=overtime_end,
+                line_dash="dash",
+                line_color="rgba(226,232,240,.34)",
+                line_width=1,
+                annotation_text=label,
+                annotation_position="top left",
+                annotation_font_size=11,
+                annotation_font_color="#CBD5E1",
+            )
+            overtime_end += 5
+            overtime_number += 1
+
+
 def show_win_probability_chart(
     predictions: pd.DataFrame,
     home_team: str,
     away_team: str,
     champion_view: bool,
     chart_key: str,
+    top_spacing_px: int = 0,
 ) -> None:
+    if top_spacing_px > 0:
+        render_html(f'<div style="height:{int(top_spacing_px)}px"></div>')
+
     st.subheader("Champion Win Probability Timeline" if champion_view else "Win Probability Timeline")
     chart_data = add_game_time_columns(predictions)
     chart_data_long = chart_data.melt(
@@ -626,6 +687,12 @@ def show_win_probability_chart(
         value_name="win_probability_pct",
     )
     chart_data_long["team"] = chart_data_long["team"].replace({"home_win_prob_pct": home_team, "away_win_prob_pct": away_team})
+    chart_data_long["Quarter"] = chart_data_long["period"].apply(lambda value: format_period(int(value)))
+    chart_data_long["Score"] = chart_data_long.apply(
+        lambda row: f"{away_team} {int(row['away_score'])} - {home_team} {int(row['home_score'])}",
+        axis=1,
+    )
+    chart_data_long["Play"] = chart_data_long["event_description"].fillna("No play description")
 
     fig = px.line(
         chart_data_long,
@@ -633,22 +700,44 @@ def show_win_probability_chart(
         y="win_probability_pct",
         color="team",
         color_discrete_map={away_team: CHART_AWAY_COLOR, home_team: CHART_HOME_COLOR},
-        hover_data=["period", "Clock", "home_score", "away_score", "score_margin_home", "event_description"],
+        custom_data=["team", "Quarter", "Clock", "Score", "Play"],
         labels={"game_minutes_elapsed": "Game Time", "win_probability_pct": "Win Probability (%)", "team": "Team"},
     )
-    fig.update_traces(line=dict(width=4))
+    fig.update_traces(
+        line=dict(width=4),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "Win Probability: %{y:.1f}%<br>"
+            "Quarter: %{customdata[1]}<br>"
+            "Clock: %{customdata[2]}<br>"
+            "Score: %{customdata[3]}<br>"
+            "Play: %{customdata[4]}"
+            "<extra></extra>"
+        ),
+    )
     fig.update_yaxes(range=[0, 100], gridcolor="#1F2937")
     fig.update_xaxes(gridcolor="#1F2937")
     fig.add_hline(y=50, line_dash="dot", line_color="#CBD5E1", opacity=.72)
+    add_quarter_markers(fig, float(chart_data["game_minutes_elapsed"].max()))
     fig.update_layout(
         template="plotly_dark",
         plot_bgcolor="#0B1020",
         paper_bgcolor="rgba(0,0,0,0)",
         hovermode="x unified",
         height=430,
-        margin=dict(l=20, r=20, t=42, b=20),
+        margin=dict(l=20, r=132, t=42, b=20),
         legend_title_text="",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(15,23,42,.72)", bordercolor="#334155", borderwidth=1, font=dict(color="#E5E7EB", size=13)),
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=.98,
+            xanchor="left",
+            x=1.02,
+            bgcolor="rgba(15,23,42,.78)",
+            bordercolor="#334155",
+            borderwidth=1,
+            font=dict(color="#E5E7EB", size=13),
+        ),
     )
     st.plotly_chart(fig, width="stretch", key=chart_key)
 
@@ -757,6 +846,7 @@ def show_game_overview(data: dict, predictions: pd.DataFrame, game_id: str, home
             away_team,
             champion_view,
             chart_key="overview_win_probability_chart",
+            top_spacing_px=22,
         )
     with right:
         render_html('<div class="right-rail-spacer"></div>')
