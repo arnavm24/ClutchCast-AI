@@ -45,17 +45,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_prediction_step(model_name: str) -> tuple[str, list[str]]:
-    if model_name == "ml":
-        return ("Generate logistic regression ML win probability", ["src/predict_with_model.py"])
+def build_prediction_step(args: argparse.Namespace) -> tuple[str, list[str]]:
+    game_id_args = []
 
-    if model_name == "advanced":
+    if args.game_id:
+        game_id_args = ["--game-id", args.game_id]
+
+    if args.model == "ml":
         return (
-            "Generate advanced ML win probability",
-            ["src/predict_with_advanced_model.py"],
+            "Generate logistic regression ML win probability",
+            ["src/predict_with_model.py"] + game_id_args,
         )
 
-    return ("Generate baseline win probability", ["src/train_baseline.py"])
+    if args.model == "advanced":
+        return (
+            "Generate advanced ML win probability",
+            ["src/predict_with_advanced_model.py"] + game_id_args,
+        )
+
+    return (
+        "Generate baseline win probability",
+        ["src/train_baseline.py"] + game_id_args,
+    )
 
 
 def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
@@ -67,7 +78,7 @@ def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]
         load_command.extend(["--season", args.season])
         load_command.extend(["--season-type", args.season_type])
 
-    prediction_step = build_prediction_step(args.model)
+    prediction_step = build_prediction_step(args)
 
     return [
         ("Load NBA play-by-play data", load_command),
@@ -109,6 +120,9 @@ def main() -> None:
 
     print("\nStarting ClutchCast AI full pipeline...")
     print(f"Prediction mode: {args.model}")
+
+    if args.game_id:
+        print(f"Selected game ID: {args.game_id}")
 
     for step_name, command_parts in pipeline_steps:
         run_step(step_name, command_parts)
