@@ -6,6 +6,7 @@ import pandas as pd
 PROCESSED_DIR = Path("data/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
+TARGET_COLUMN = "home_won"
 
 BASE_FEATURE_COLUMNS = [
     "period",
@@ -20,9 +21,6 @@ BASE_FEATURE_COLUMNS = [
 ]
 
 
-TARGET_COLUMN = "home_won"
-
-
 def load_training_dataset() -> pd.DataFrame:
     input_path = PROCESSED_DIR / "training_dataset.csv"
 
@@ -33,18 +31,17 @@ def load_training_dataset() -> pd.DataFrame:
         )
 
     print(f"Loading training dataset from: {input_path}")
-
     data = pd.read_csv(input_path, dtype={"game_id": str})
 
     if data.empty:
         raise ValueError("Training dataset is empty.")
 
+    data["game_id"] = data["game_id"].astype(str).str.zfill(10)
     return data
 
 
 def contains_keyword(series: pd.Series, keywords: list[str]) -> pd.Series:
     text = series.fillna("").astype(str).str.lower()
-
     result = pd.Series(False, index=series.index)
 
     for keyword in keywords:
@@ -55,18 +52,21 @@ def contains_keyword(series: pd.Series, keywords: list[str]) -> pd.Series:
 
 def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy()
-
-    total_game_seconds = 48 * 60
+    regulation_seconds = 48 * 60
 
     output["time_remaining_fraction"] = (
-        output["seconds_remaining"] / total_game_seconds
+        output["seconds_remaining"] / regulation_seconds
     ).clip(0, 1)
+    output["time_elapsed_fraction"] = (1 - output["time_remaining_fraction"]).clip(0, 1)
 
-    output["time_elapsed_fraction"] = (
-        1 - output["time_remaining_fraction"]
-    ).clip(0, 1)
+    output["period_1"] = (output["period"] == 1).astype(int)
+    output["period_2"] = (output["period"] == 2).astype(int)
+    output["period_3"] = (output["period"] == 3).astype(int)
+    output["period_4"] = (output["period"] == 4).astype(int)
+    output["is_second_half"] = output["period"].between(3, 4).astype(int)
+    output["is_overtime"] = (output["period"] > 4).astype(int)
+    output["overtime_period_number"] = (output["period"] - 4).clip(lower=0)
 
-    output["is_second_half"] = (output["period"] >= 3).astype(int)
     output["is_final_5_minutes"] = (output["seconds_remaining"] <= 5 * 60).astype(int)
     output["is_final_2_minutes"] = (output["seconds_remaining"] <= 2 * 60).astype(int)
     output["is_final_1_minute"] = (output["seconds_remaining"] <= 60).astype(int)
@@ -79,18 +79,17 @@ def add_score_margin_features(df: pd.DataFrame) -> pd.DataFrame:
 
     output["home_lead"] = (output["score_margin_home"] > 0).astype(int)
     output["away_lead"] = (output["score_margin_home"] < 0).astype(int)
-    output["game_tied"] = (output["score_margin_home"] == 0).astype(int)
+    output["tied_game"] = (output["score_margin_home"] == 0).astype(int)
 
-    output["is_one_possession_game"] = (output["abs_score_margin"] <= 3).astype(int)
-    output["is_two_possession_game"] = (output["abs_score_margin"] <= 6).astype(int)
-    output["is_blowout_margin"] = (output["abs_score_margin"] >= 20).astype(int)
+    output["one_possession_game"] = (output["abs_score_margin"] <= 3).astype(int)
+    output["two_possession_game"] = (output["abs_score_margin"] <= 6).astype(int)
+    output["three_possession_game"] = (output["abs_score_margin"] <= 9).astype(int)
+    output["blowout_margin"] = (output["abs_score_margin"] >= 20).astype(int)
 
     output["margin_squared"] = output["score_margin_home"] ** 2
-
     output["score_margin_time_weighted"] = (
         output["score_margin_home"] * output["time_elapsed_fraction"]
     )
-
     output["abs_margin_time_weighted"] = (
         output["abs_score_margin"] * output["time_elapsed_fraction"]
     )
@@ -100,22 +99,20 @@ def add_score_margin_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy()
-
     description = output["event_description"]
 
-    output["is_shot"] = contains_keyword(
-        description,
-        [
-            "jump shot",
-            "layup",
-            "dunk",
-            "hook shot",
-            "tip shot",
-            "floating",
-            "driving",
-        ],
-    )
+    shot_keywords = [
+        "jump shot",
+        "layup",
+        "dunk",
+        "hook shot",
+        "tip shot",
+        "floating",
+        "driving",
+        "pullup",
+    ]
 
+    output["is_shot"] = contains_keyword(description, shot_keywords)
     output["is_three_pointer"] = contains_keyword(description, ["3pt"])
     output["is_free_throw"] = contains_keyword(description, ["free throw"])
     output["is_missed_shot"] = contains_keyword(description, ["miss"])
@@ -139,39 +136,28 @@ def add_event_type_features(df: pd.DataFrame) -> pd.DataFrame:
 def classify_event_value(description: str) -> int:
     desc = str(description).lower()
 
-    if "timeout" in desc or "sub:" in desc:
+    if "timeout" in desc or "sub:" in desc or "start" in desc or "end" in desc:
         return 0
-
     if "turnover" in desc:
         return -4
-
     if "steal" in desc:
         return 4
-
     if "block" in desc:
         return 3
-
     if "3pt" in desc and "miss" not in desc:
         return 5
-
     if "dunk" in desc and "miss" not in desc:
         return 4
-
     if "layup" in desc and "miss" not in desc:
         return 3
-
     if "jump shot" in desc and "miss" not in desc:
         return 3
-
     if "free throw" in desc and "miss" not in desc:
         return 1
-
     if "miss" in desc:
         return -2
-
     if "rebound" in desc and "off:" in desc:
         return 2
-
     if "rebound" in desc:
         return 1
 
@@ -180,71 +166,60 @@ def classify_event_value(description: str) -> int:
 
 def add_event_value_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy()
-
     output["event_value"] = output["event_description"].apply(classify_event_value)
+    return output
+
+
+def add_team_event_direction_features(df: pd.DataFrame) -> pd.DataFrame:
+    output = df.copy().sort_values(["game_id", "event_num"]).copy()
+
+    output["event_team"] = output["event_team"].fillna("").astype(str)
+    output["home_score_delta"] = output.groupby("game_id")["home_score"].diff().fillna(0)
+    output["away_score_delta"] = output.groupby("game_id")["away_score"].diff().fillna(0)
+
+    # We only assign event direction when the current event itself changed the score.
+    # Non-scoring events remain neutral because the raw game-state file does not carry
+    # reliable home/away team labels for every event.
+    output["event_by_home"] = (
+        (output["home_score_delta"] > 0) & (output["event_team"] != "")
+    ).astype(int)
+    output["event_by_away"] = (
+        (output["away_score_delta"] > 0) & (output["event_team"] != "")
+    ).astype(int)
+
+    output["signed_event_value_home_perspective"] = 0
+    output.loc[output["event_by_home"] == 1, "signed_event_value_home_perspective"] = (
+        output.loc[output["event_by_home"] == 1, "event_value"]
+    )
+    output.loc[output["event_by_away"] == 1, "signed_event_value_home_perspective"] = -(
+        output.loc[output["event_by_away"] == 1, "event_value"]
+    )
 
     return output
 
 
 def add_rolling_features(df: pd.DataFrame) -> pd.DataFrame:
-    output = df.copy()
-
-    output = output.sort_values(["game_id", "event_num"]).copy()
+    output = df.copy().sort_values(["game_id", "event_num"]).copy()
 
     for window in [5, 10]:
         output[f"recent_margin_change_{window}"] = (
-            output.groupby("game_id")["score_margin_home"]
-            .diff(window)
-            .fillna(0)
+            output.groupby("game_id")["score_margin_home"].diff(window).fillna(0)
         )
-
+        output[f"recent_total_score_change_{window}"] = (
+            output.groupby("game_id")["total_score"].diff(window).fillna(0)
+        )
         output[f"recent_event_value_{window}"] = (
             output.groupby("game_id")["event_value"]
             .rolling(window=window, min_periods=1)
             .sum()
             .reset_index(level=0, drop=True)
         )
-
-        output[f"recent_total_score_change_{window}"] = (
-            output.groupby("game_id")["total_score"]
-            .diff(window)
-            .fillna(0)
+        output[f"recent_home_perspective_event_value_{window}"] = (
+            output.groupby("game_id")["signed_event_value_home_perspective"]
+            .rolling(window=window, min_periods=1)
+            .sum()
+            .reset_index(level=0, drop=True)
         )
-
-    return output
-
-
-def add_team_event_direction_features(df: pd.DataFrame) -> pd.DataFrame:
-    output = df.copy()
-
-    output["event_team"] = output["event_team"].fillna("").astype(str)
-
-    home_team_by_game = (
-        output[output["event_team"] != ""]
-        .groupby("game_id")["event_team"]
-        .agg(lambda teams: teams.mode().iloc[0] if not teams.mode().empty else "")
-    )
-
-    output["estimated_home_event_team"] = output["game_id"].map(home_team_by_game).fillna("")
-
-    output["event_by_estimated_home"] = (
-        output["event_team"] == output["estimated_home_event_team"]
-    ).astype(int)
-
-    output["event_by_estimated_away"] = (
-        (output["event_team"] != "")
-        & (output["event_team"] != output["estimated_home_event_team"])
-    ).astype(int)
-
-    output["signed_event_value_home_perspective"] = output["event_value"]
-
-    output.loc[
-        output["event_by_estimated_away"] == 1,
-        "signed_event_value_home_perspective",
-    ] = -output.loc[
-        output["event_by_estimated_away"] == 1,
-        "event_value",
-    ]
 
     return output
 
@@ -261,7 +236,6 @@ def build_model_features(df: pd.DataFrame) -> pd.DataFrame:
     ]
 
     missing = [col for col in required_columns if col not in output.columns]
-
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
@@ -269,12 +243,10 @@ def build_model_features(df: pd.DataFrame) -> pd.DataFrame:
     output = add_score_margin_features(output)
     output = add_event_type_features(output)
     output = add_event_value_features(output)
-    output = add_rolling_features(output)
     output = add_team_event_direction_features(output)
+    output = add_rolling_features(output)
 
-    output = output.fillna(0)
-
-    return output
+    return output.fillna(0)
 
 
 def get_model_feature_columns(df: pd.DataFrame) -> list[str]:
@@ -286,37 +258,27 @@ def get_model_feature_columns(df: pd.DataFrame) -> list[str]:
         "event_player",
         "event_description",
         "event_type",
-        "estimated_home_event_team",
+        "home_score_delta",
+        "away_score_delta",
         TARGET_COLUMN,
     }
 
-    feature_columns = [
-        column
-        for column in df.columns
-        if column not in excluded_columns
-    ]
-
-    return feature_columns
+    return [column for column in df.columns if column not in excluded_columns]
 
 
 def save_feature_list(feature_columns: list[str]) -> None:
     output_path = PROCESSED_DIR / "model_feature_columns.txt"
-
     output_path.write_text("\n".join(feature_columns), encoding="utf-8")
-
     print(f"Saved model feature list to: {output_path}")
 
 
 def main() -> None:
     data = load_training_dataset()
-
     model_data = build_model_features(data)
-
     feature_columns = get_model_feature_columns(model_data)
 
     output_path = PROCESSED_DIR / "model_training_dataset.csv"
     model_data.to_csv(output_path, index=False)
-
     save_feature_list(feature_columns)
 
     print("\nSuccess.")
