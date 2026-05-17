@@ -4,22 +4,11 @@ import argparse
 import joblib
 import pandas as pd
 
+from model_features import build_model_features
+
 
 PROCESSED_DIR = Path("data/processed")
 MODELS_DIR = Path("models")
-
-
-FEATURE_COLUMNS = [
-    "period",
-    "seconds_remaining",
-    "home_score",
-    "away_score",
-    "score_margin_home",
-    "abs_score_margin",
-    "total_score",
-    "is_4th_quarter",
-    "is_clutch_time",
-]
 
 
 def load_model():
@@ -27,12 +16,33 @@ def load_model():
 
     if not model_path.exists():
         raise FileNotFoundError(
-            "No trained model found. Run:\n"
+            "No trained logistic regression model found. Run:\n"
             "python src/train_model.py"
         )
 
     print(f"Loading model from: {model_path}")
     return joblib.load(model_path)
+
+
+def load_model_feature_columns() -> list[str]:
+    feature_path = MODELS_DIR / "win_probability_model_features.txt"
+
+    if not feature_path.exists():
+        raise FileNotFoundError(
+            "No model feature list found. Run:\n"
+            "python src/train_model.py"
+        )
+
+    feature_columns = [
+        line.strip()
+        for line in feature_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    if not feature_columns:
+        raise ValueError("Model feature list is empty.")
+
+    return feature_columns
 
 
 def load_game_state(game_id: str | None = None) -> pd.DataFrame:
@@ -49,7 +59,7 @@ def load_game_state(game_id: str | None = None) -> pd.DataFrame:
         print(f"Loading game-state file: {input_path}")
         return pd.read_csv(input_path, dtype={"game_id": str})
 
-    files = list(PROCESSED_DIR.glob("game_state_*.csv"))
+    files = sorted(PROCESSED_DIR.glob("game_state_*.csv"))
 
     if not files:
         raise FileNotFoundError(
@@ -63,19 +73,26 @@ def load_game_state(game_id: str | None = None) -> pd.DataFrame:
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
-def validate_features(df: pd.DataFrame) -> None:
-    missing = [col for col in FEATURE_COLUMNS if col not in df.columns]
+def validate_features(df: pd.DataFrame, feature_columns: list[str]) -> None:
+    missing = [col for col in feature_columns if col not in df.columns]
 
     if missing:
         raise ValueError(f"Missing required feature columns: {missing}")
 
 
-def add_ml_predictions(game_state: pd.DataFrame, model) -> pd.DataFrame:
+def add_ml_predictions(
+    game_state: pd.DataFrame,
+    model,
+    feature_columns: list[str],
+) -> pd.DataFrame:
     output = game_state.copy()
 
-    validate_features(output)
+    # Build the same improved features used during training.
+    model_ready_data = build_model_features(output)
 
-    X = output[FEATURE_COLUMNS]
+    validate_features(model_ready_data, feature_columns)
+
+    X = model_ready_data[feature_columns]
 
     home_win_prob = model.predict_proba(X)[:, 1]
 
@@ -88,7 +105,7 @@ def add_ml_predictions(game_state: pd.DataFrame, model) -> pd.DataFrame:
     output["wp_change"] = output["home_win_prob"].diff().fillna(0)
     output["abs_wp_change"] = output["wp_change"].abs()
 
-    output["prediction_source"] = "logistic_regression_model"
+    output["prediction_source"] = "logistic_regression_model_improved_features"
 
     return output
 
@@ -112,9 +129,14 @@ def main() -> None:
     args = parse_args()
 
     model = load_model()
+    feature_columns = load_model_feature_columns()
     game_state = load_game_state(args.game_id)
 
-    predictions = add_ml_predictions(game_state, model)
+    predictions = add_ml_predictions(
+        game_state=game_state,
+        model=model,
+        feature_columns=feature_columns,
+    )
 
     game_id = str(predictions["game_id"].iloc[0]).zfill(10)
     output_path = PROCESSED_DIR / f"ml_predictions_{game_id}.csv"
@@ -124,6 +146,7 @@ def main() -> None:
     print("\nSuccess.")
     print(f"Saved ML predictions to: {output_path}")
     print(f"Rows: {len(predictions)}")
+    print(f"Feature count used: {len(feature_columns)}")
 
     print("\nSample predictions:")
     print(
