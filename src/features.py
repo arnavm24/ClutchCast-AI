@@ -1,9 +1,41 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
 
 
 PROCESSED_DIR = Path("data/processed")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Add clutch pressure features to predictions.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
+
+
+def get_prediction_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"baseline_predictions_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing baseline predictions for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/train_baseline.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
+
+    if not files:
+        raise FileNotFoundError(
+            "No baseline prediction files found. Run src/train_baseline.py first."
+        )
+
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest baseline predictions file: {input_path}")
+    return input_path
 
 
 def calculate_closeness_score(abs_score_margin: float) -> float:
@@ -89,14 +121,8 @@ def add_clutch_pressure(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def main() -> None:
-    files = list(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
-
-    if not files:
-        raise FileNotFoundError(
-            "No baseline prediction files found. Run src/train_baseline.py first."
-        )
-
-    input_path = files[0]
+    args = parse_args()
+    input_path = get_prediction_path(args.game_id)
     print(f"Loading predictions from: {input_path}")
 
     predictions = pd.read_csv(input_path, dtype={"game_id": str})
