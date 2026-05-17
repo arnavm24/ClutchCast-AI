@@ -45,11 +45,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_prediction_step(args: argparse.Namespace) -> tuple[str, list[str]]:
-    game_id_args = []
+def get_game_id_args(args: argparse.Namespace) -> list[str]:
+    if not args.game_id:
+        return []
 
-    if args.game_id:
-        game_id_args = ["--game-id", args.game_id]
+    return ["--game-id", args.game_id]
+
+
+def build_prediction_step(args: argparse.Namespace) -> tuple[str, list[str]]:
+    game_id_args = get_game_id_args(args)
 
     if args.model == "ml":
         return (
@@ -76,10 +80,11 @@ def build_prediction_step(args: argparse.Namespace) -> tuple[str, list[str]]:
 
 
 def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]]:
+    game_id_args = get_game_id_args(args)
     load_command = ["src/load_data.py"]
 
     if args.game_id:
-        load_command.extend(["--game-id", args.game_id])
+        load_command.extend(game_id_args)
     else:
         load_command.extend(["--season", args.season])
         load_command.extend(["--season-type", args.season_type])
@@ -88,15 +93,15 @@ def build_pipeline_steps(args: argparse.Namespace) -> list[tuple[str, list[str]]
 
     return [
         ("Load NBA play-by-play data", load_command),
-        ("Build game-state table", ["src/game_state.py"]),
+        ("Build game-state table", ["src/game_state.py"] + game_id_args),
         prediction_step,
-        ("Create win probability chart", ["src/predict_game.py"]),
-        ("Add clutch pressure features", ["src/features.py"]),
-        ("Build comeback reality meter", ["src/comeback_meter.py"]),
-        ("Calculate hidden momentum", ["src/momentum.py"]),
-        ("Calculate player swing impact", ["src/player_impact.py"]),
-        ("Find turning points", ["src/turning_points.py"]),
-        ("Generate post-game recap", ["src/recap.py"] + (["--game-id", args.game_id] if args.game_id else [])),
+        ("Create win probability chart", ["src/predict_game.py"] + game_id_args),
+        ("Add clutch pressure features", ["src/features.py"] + game_id_args),
+        ("Build comeback reality meter", ["src/comeback_meter.py"] + game_id_args),
+        ("Calculate hidden momentum", ["src/momentum.py"] + game_id_args),
+        ("Calculate player swing impact", ["src/player_impact.py"] + game_id_args),
+        ("Find turning points", ["src/turning_points.py"] + game_id_args),
+        ("Generate post-game recap", ["src/recap.py"] + game_id_args),
     ]
 
 
