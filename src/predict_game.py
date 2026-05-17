@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -9,17 +10,40 @@ FIGURES_DIR = Path("reports/figures")
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_predictions() -> pd.DataFrame:
-    files = list(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Create a win probability chart.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
+
+
+def get_prediction_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"baseline_predictions_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing baseline predictions for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/train_baseline.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("baseline_predictions_*.csv"))
 
     if not files:
         raise FileNotFoundError(
             "No baseline prediction files found. Run src/train_baseline.py first."
         )
 
-    input_path = files[0]
-    print(f"Loading predictions from: {input_path}")
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest baseline predictions file: {input_path}")
+    return input_path
 
+
+def load_predictions(game_id: str | None = None) -> pd.DataFrame:
+    input_path = get_prediction_path(game_id)
+    print(f"Loading predictions from: {input_path}")
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
@@ -48,7 +72,7 @@ def create_win_probability_chart(df: pd.DataFrame) -> None:
             "score_margin_home",
             "event_description",
         ],
-        title=f"ClutchCast AI — Baseline Home Win Probability ({game_id})",
+        title=f"ClutchCast AI - Baseline Home Win Probability ({game_id})",
         labels={
             "game_minutes_elapsed": "Game Minutes Elapsed",
             "home_win_prob_pct": "Home Win Probability (%)",
@@ -68,7 +92,8 @@ def create_win_probability_chart(df: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    predictions = load_predictions()
+    args = parse_args()
+    predictions = load_predictions(args.game_id)
     predictions = add_game_progress(predictions)
     create_win_probability_chart(predictions)
 
