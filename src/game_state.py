@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 import re
 
@@ -7,6 +8,40 @@ import pandas as pd
 RAW_DIR = Path("data/raw")
 PROCESSED_DIR = Path("data/processed")
 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build a game-state table from raw NBA play-by-play.")
+    parser.add_argument(
+        "--game-id",
+        type=str,
+        default=None,
+        help="Specific NBA game ID to process, example: 0042300312.",
+    )
+    return parser.parse_args()
+
+
+def get_input_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = RAW_DIR / f"play_by_play_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing raw play-by-play file for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/load_data.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(RAW_DIR.glob("play_by_play_*.csv"))
+
+    if not files:
+        raise FileNotFoundError("No raw play-by-play files found in data/raw.")
+
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest raw play-by-play file: {input_path}")
+    return input_path
 
 
 def parse_clock_to_seconds(clock: str) -> int:
@@ -96,9 +131,6 @@ def build_game_state(input_path: Path) -> pd.DataFrame:
         axis=1,
     )
 
-    # Correct score handling:
-    # NBA API often leaves score blank on non-scoring events.
-    # Forward fill keeps the current game score accurate at every event.
     score_home = (
         pd.to_numeric(df["scoreHome"], errors="coerce")
         .ffill()
@@ -145,12 +177,8 @@ def build_game_state(input_path: Path) -> pd.DataFrame:
 
 
 def main() -> None:
-    files = list(RAW_DIR.glob("play_by_play_*.csv"))
-
-    if not files:
-        raise FileNotFoundError("No raw play-by-play files found in data/raw.")
-
-    input_path = files[0]
+    args = parse_args()
+    input_path = get_input_path(args.game_id)
     print(f"Building game-state table from: {input_path}")
 
     game_state = build_game_state(input_path)
