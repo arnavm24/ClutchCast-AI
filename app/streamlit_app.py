@@ -162,10 +162,16 @@ def get_available_game_ids() -> list[str]:
     for file in PROCESSED_DIR.glob("advanced_predictions_*.csv"):
         game_ids.add(file.stem.replace("advanced_predictions_", ""))
 
+    for file in PROCESSED_DIR.glob("neural_predictions_*.csv"):
+        game_ids.add(file.stem.replace("neural_predictions_", ""))
+
     return sorted(game_ids)
 
 
 def get_prediction_file(game_id: str, prediction_mode: str) -> Path:
+    if prediction_mode == "Neural Network Model":
+        return PROCESSED_DIR / f"neural_predictions_{game_id}.csv"
+
     if prediction_mode == "Advanced ML Model":
         return PROCESSED_DIR / f"advanced_predictions_{game_id}.csv"
 
@@ -271,20 +277,25 @@ def clean_table_columns(df: pd.DataFrame) -> pd.DataFrame:
         "baseline_home_win_prob_pct": "Baseline Home Win Probability",
         "logistic_ml_home_win_prob_pct": "Logistic ML Home Win Probability",
         "advanced_ml_home_win_prob_pct": "Advanced ML Home Win Probability",
+        "neural_home_win_prob_pct": "Neural Network Home Win Probability",
         "logistic_minus_baseline_pct": "Logistic - Baseline",
         "advanced_minus_baseline_pct": "Advanced - Baseline",
         "advanced_minus_logistic_pct": "Advanced - Logistic",
-        "abs_logistic_minus_baseline_pct": "Abs. Logistic - Baseline",
-        "abs_advanced_minus_baseline_pct": "Abs. Advanced - Baseline",
-        "abs_advanced_minus_logistic_pct": "Abs. Advanced - Logistic",
+        "neural_minus_baseline_pct": "Neural - Baseline",
+        "neural_minus_logistic_pct": "Neural - Logistic",
+        "neural_minus_advanced_pct": "Neural - Advanced",
         "max_model_disagreement_pct": "Max Model Disagreement",
         "rows_compared": "Rows Compared",
         "avg_logistic_vs_baseline_diff_pct": "Avg. Logistic vs Baseline",
         "avg_advanced_vs_baseline_diff_pct": "Avg. Advanced vs Baseline",
         "avg_advanced_vs_logistic_diff_pct": "Avg. Advanced vs Logistic",
+        "avg_neural_vs_baseline_diff_pct": "Avg. Neural vs Baseline",
+        "avg_neural_vs_logistic_diff_pct": "Avg. Neural vs Logistic",
+        "avg_neural_vs_advanced_diff_pct": "Avg. Neural vs Advanced",
         "baseline_final_home_win_prob_pct": "Baseline Final Home Win Prob.",
         "logistic_ml_final_home_win_prob_pct": "Logistic Final Home Win Prob.",
         "advanced_ml_final_home_win_prob_pct": "Advanced Final Home Win Prob.",
+        "neural_final_home_win_prob_pct": "Neural Final Home Win Prob.",
         "final_home_score": "Final Home Score",
         "final_away_score": "Final Away Score",
         "final_home_margin": "Final Home Margin",
@@ -768,14 +779,19 @@ def show_model_comparison(
     model_disagreements: pd.DataFrame,
 ) -> None:
     st.subheader("Model Comparison")
-    st.caption("Compares the baseline formula, logistic regression model, and advanced random forest model.")
+    st.caption("Compares the baseline, logistic regression, advanced random forest, and PyTorch neural network models.")
 
     if comparison_summary.empty or model_disagreements.empty:
-        st.warning("Three-model comparison files were not found for this game.")
+        st.warning("Four-model comparison files were not found for this game yet.")
         st.info("Run: `python src/compare_models.py --game-id YOUR_GAME_ID`")
         return
 
     summary = comparison_summary.iloc[0]
+
+    if "avg_neural_vs_baseline_diff_pct" not in summary.index:
+        st.warning("This comparison file does not include the neural network yet.")
+        st.info("Re-run: `python src/compare_models.py --game-id YOUR_GAME_ID`")
+        return
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -788,8 +804,8 @@ def show_model_comparison(
         f"{float(summary['avg_advanced_vs_baseline_diff_pct']):.1f}%",
     )
     col3.metric(
-        "Advanced vs Logistic",
-        f"{float(summary['avg_advanced_vs_logistic_diff_pct']):.1f}%",
+        "Neural vs Baseline",
+        f"{float(summary['avg_neural_vs_baseline_diff_pct']):.1f}%",
     )
     col4.metric(
         "Max Disagreement",
@@ -798,7 +814,7 @@ def show_model_comparison(
 
     st.markdown("### Final Home Win Probability by Model")
 
-    final_cols = st.columns(3)
+    final_cols = st.columns(4)
 
     final_cols[0].metric(
         "Baseline",
@@ -811,6 +827,10 @@ def show_model_comparison(
     final_cols[2].metric(
         "Advanced ML",
         f"{float(summary['advanced_ml_final_home_win_prob_pct']):.1f}%",
+    )
+    final_cols[3].metric(
+        "Neural Network",
+        f"{float(summary['neural_final_home_win_prob_pct']):.1f}%",
     )
 
     st.markdown("### Biggest Model Disagreement Moments")
@@ -888,6 +908,9 @@ def main() -> None:
         if (PROCESSED_DIR / f"advanced_predictions_{selected_game_id}.csv").exists():
             available_modes.append("Advanced ML Model")
 
+        if (PROCESSED_DIR / f"neural_predictions_{selected_game_id}.csv").exists():
+            available_modes.append("Neural Network Model")
+
         prediction_mode = st.selectbox(
             "Prediction mode",
             available_modes,
@@ -913,6 +936,7 @@ def main() -> None:
         st.caption("Baseline = rule-based formula")
         st.caption("ML Model = logistic regression")
         st.caption("Advanced ML = random forest model")
+        st.caption("Neural Network = PyTorch model")
 
     show_header(home_team, away_team, prediction_mode)
     show_game_summary(predictions, home_team, away_team, prediction_mode)
