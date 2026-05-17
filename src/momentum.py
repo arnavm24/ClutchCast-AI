@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
@@ -28,43 +29,49 @@ FOUL_ONLY_KEYWORDS = [
 ]
 
 
-def load_comeback_metrics() -> pd.DataFrame:
-    """
-    Loads the comeback metrics file.
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build hidden momentum metrics.")
+    parser.add_argument("--game-id", type=str, default=None)
+    return parser.parse_args()
 
-    This file should already include:
-    - baseline win probability
-    - clutch pressure
-    - comeback metrics
-    """
-    files = list(PROCESSED_DIR.glob("comeback_metrics_*.csv"))
+
+def get_comeback_metrics_path(game_id: str | None) -> Path:
+    if game_id:
+        normalized_game_id = str(game_id).zfill(10)
+        input_path = PROCESSED_DIR / f"comeback_metrics_{normalized_game_id}.csv"
+
+        if not input_path.exists():
+            raise FileNotFoundError(
+                f"Missing comeback metrics for game {normalized_game_id}: {input_path}\n"
+                f"Run: python src/comeback_meter.py --game-id {normalized_game_id}"
+            )
+
+        return input_path
+
+    files = sorted(PROCESSED_DIR.glob("comeback_metrics_*.csv"))
 
     if not files:
         raise FileNotFoundError(
             "No comeback metrics files found. Run src/comeback_meter.py first."
         )
 
-    input_path = files[0]
-    print(f"Loading comeback metrics from: {input_path}")
+    input_path = files[-1]
+    print(f"No --game-id provided. Using latest comeback metrics file: {input_path}")
+    return input_path
 
+
+def load_comeback_metrics(game_id: str | None = None) -> pd.DataFrame:
+    input_path = get_comeback_metrics_path(game_id)
+    print(f"Loading comeback metrics from: {input_path}")
     return pd.read_csv(input_path, dtype={"game_id": str})
 
 
 def is_ignored_event(description: str) -> bool:
-    """
-    Returns True for events that should not be treated as major basketball
-    momentum events, such as timeouts and substitutions.
-    """
     desc = str(description).lower()
-
     return any(keyword in desc for keyword in IGNORED_EVENT_KEYWORDS)
 
 
 def is_foul_only_event(description: str) -> bool:
-    """
-    Returns True for foul events that should be down-weighted unless the
-    play also includes a made/missed shot or free throw context.
-    """
     desc = str(description).lower()
 
     has_shot_context = any(
@@ -86,55 +93,34 @@ def is_foul_only_event(description: str) -> bool:
 
 
 def classify_event_value(description: str) -> int:
-    """
-    Gives a simple event value based on the play description.
-
-    Positive values generally indicate successful offensive/defensive events.
-    Negative values generally indicate empty possessions or mistakes.
-
-    This is a V1 heuristic, not a perfect basketball model.
-    """
     desc = str(description).lower()
 
     if is_ignored_event(desc):
         return 0
-
     if is_foul_only_event(desc):
         return -1
-
     if "turnover" in desc:
         return -4
-
     if "steal" in desc:
         return 4
-
     if "block" in desc:
         return 3
-
     if "3pt" in desc and "miss" not in desc:
         return 5
-
     if "dunk" in desc and "miss" not in desc:
         return 4
-
     if "layup" in desc and "miss" not in desc:
         return 3
-
     if "jump shot" in desc and "miss" not in desc:
         return 3
-
     if "hook shot" in desc and "miss" not in desc:
         return 2
-
     if "free throw" in desc and "miss" not in desc:
         return 1
-
     if "miss" in desc:
         return -2
-
     if "rebound" in desc and "off:" in desc:
         return 2
-
     if "rebound" in desc:
         return 1
 
@@ -142,71 +128,41 @@ def classify_event_value(description: str) -> int:
 
 
 def add_event_value(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds event-value and event-filter columns from the play description.
-    """
     output = df.copy()
 
     output["is_ignored_momentum_event"] = output["event_description"].apply(
         is_ignored_event
     )
-
     output["event_value"] = output["event_description"].apply(classify_event_value)
 
     return output
 
 
 def add_recent_score_margin_change(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
-    """
-    Calculates how much the home team's score margin changed over the last N events.
-    """
     output = df.copy()
-
     output["recent_margin_change"] = (
         output["score_margin_home"] - output["score_margin_home"].shift(window)
     ).fillna(0)
-
     return output
 
 
 def add_recent_wp_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
-    """
-    Calculates recent home-team win probability momentum over the last N events.
-    """
     output = df.copy()
-
     output["recent_wp_change_pct"] = (
         (output["home_win_prob"] - output["home_win_prob"].shift(window)) * 100
     ).fillna(0).round(2)
-
     return output
 
 
 def add_recent_event_value(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
-    """
-    Calculates rolling recent event value over the last N events.
-    """
     output = df.copy()
-
     output["recent_event_value"] = (
         output["event_value"].rolling(window=window, min_periods=1).sum()
     )
-
     return output
 
 
 def calculate_hidden_momentum(row: pd.Series) -> float:
-    """
-    Calculates a hidden momentum score from -100 to +100.
-
-    Positive = home team momentum.
-    Negative = away team momentum.
-
-    Inputs:
-    - recent score margin change
-    - recent win probability change
-    - recent event value
-    """
     margin_component = row["recent_margin_change"] * 5
     wp_component = row["recent_wp_change_pct"] * 2
     event_component = row["recent_event_value"] * 2
@@ -217,9 +173,6 @@ def calculate_hidden_momentum(row: pd.Series) -> float:
 
 
 def classify_momentum(score: float) -> str:
-    """
-    Converts hidden momentum score into a readable label.
-    """
     if score >= 50:
         return "Strong home momentum"
     if score >= 20:
@@ -232,9 +185,6 @@ def classify_momentum(score: float) -> str:
 
 
 def add_hidden_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
-    """
-    Adds hidden momentum metrics to the dataframe.
-    """
     required_columns = [
         "score_margin_home",
         "home_win_prob",
@@ -259,14 +209,7 @@ def add_hidden_momentum(df: pd.DataFrame, window: int = 10) -> pd.DataFrame:
 
 
 def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFrame:
-    """
-    Finds moments where hidden momentum is strongest.
-
-    This report filters out timeout/substitution-type events so the dashboard
-    focuses on actual basketball actions.
-    """
     output = df.copy()
-
     output["abs_hidden_momentum"] = output["hidden_momentum_score"].abs()
 
     report_candidates = output[
@@ -302,7 +245,8 @@ def get_biggest_momentum_swings(df: pd.DataFrame, top_n: int = 10) -> pd.DataFra
 
 
 def main() -> None:
-    data = load_comeback_metrics()
+    args = parse_args()
+    data = load_comeback_metrics(args.game_id)
     game_id = str(data["game_id"].iloc[0]).zfill(10)
 
     output = add_hidden_momentum(data, window=10)
