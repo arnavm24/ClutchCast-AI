@@ -27,6 +27,7 @@ from nba_api.stats.endpoints import playbyplayv3, scoreboardv2
 SPORTSDATA_IO_API_KEY_ENV = "SPORTSDATA_IO_API_KEY"
 API_SPORTS_API_KEY_ENV = "API_SPORTS_API_KEY"
 NBA_LIVE_SCOREBOARD_CDN_URL = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+NBA_LIVE_PLAY_BY_PLAY_CDN_URL_TEMPLATE = "https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{game_id}.json"
 NBA_LIVE_SCOREBOARD_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -133,6 +134,10 @@ def _extract_live_actions(raw_live_pbp: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _cdn_play_by_play_url(game_id: str) -> str:
+    return NBA_LIVE_PLAY_BY_PLAY_CDN_URL_TEMPLATE.format(game_id=_clean_game_id(game_id))
+
+
 def live_play_by_play_to_dataframe(raw_live_pbp: dict[str, Any]) -> pd.DataFrame:
     """Convert nba_api live play-by-play actions into game_state-compatible rows."""
 
@@ -183,6 +188,14 @@ def _fetch_live_play_by_play(game_id: str) -> tuple[dict[str, Any], pd.DataFrame
     return payload, live_play_by_play_to_dataframe(payload)
 
 
+def _fetch_cdn_live_play_by_play(game_id: str) -> tuple[dict[str, Any], pd.DataFrame, dict[str, Any]]:
+    result = fetch_nba_cdn_json(_cdn_play_by_play_url(game_id))
+    if not result["ok"]:
+        raise ValueError(result["diagnostics"].get("error", "NBA CDN play-by-play request failed."))
+    payload = result["payload"]
+    return payload, live_play_by_play_to_dataframe(payload), result["diagnostics"]
+
+
 def _fetch_stats_play_by_play(game_id: str) -> pd.DataFrame:
     response = playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=10)
     frames = response.get_data_frames()
@@ -222,30 +235,59 @@ def _coerce_live_games(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _fetch_cdn_live_scoreboard_payload() -> tuple[dict[str, Any], dict[str, Any]]:
-    response = requests.get(
-        NBA_LIVE_SCOREBOARD_CDN_URL,
-        headers=NBA_LIVE_SCOREBOARD_HEADERS,
-        timeout=10,
-    )
-    raw_text = response.text or ""
+def fetch_nba_cdn_json(url: str) -> dict[str, Any]:
     diagnostics = {
-        "url": NBA_LIVE_SCOREBOARD_CDN_URL,
-        "raw_status_code": response.status_code,
-        "content_type": response.headers.get("content-type", ""),
-        "raw_response_start": raw_text[:500],
+        "url": url,
+        "raw_status_code": None,
+        "status_code": None,
+        "content_type": "",
+        "raw_response_start": "",
+        "error": "",
     }
+    try:
+        response = requests.get(url, headers=NBA_LIVE_SCOREBOARD_HEADERS, timeout=10)
+        raw_text = response.text or ""
+        diagnostics.update(
+            {
+                "raw_status_code": response.status_code,
+                "status_code": response.status_code,
+                "content_type": response.headers.get("content-type", ""),
+                "raw_response_start": raw_text[:300],
+            }
+        )
+    except requests.RequestException as error:
+        diagnostics["error"] = f"NBA CDN request failed: {error}"
+        return {"ok": False, "payload": None, "diagnostics": diagnostics}
+
+    if response.status_code < 200 or response.status_code >= 300:
+        diagnostics["error"] = (
+            "NBA CDN endpoint returned a non-success status code. "
+            f"status={response.status_code}, body_start={raw_text[:160]!r}"
+        )
+        return {"ok": False, "payload": None, "diagnostics": diagnostics}
+
     try:
         payload = response.json()
     except ValueError as error:
-        raise ValueError(
-            "NBA live scoreboard endpoint is not returning JSON from this environment. "
+        diagnostics["error"] = (
+            "NBA live endpoint is not returning JSON from this environment. "
             f"status={response.status_code}, content_type={diagnostics['content_type']}, "
-            f"body_start={raw_text[:160]!r}"
-        ) from error
+            f"body_start={raw_text[:160]!r}, error={error}"
+        )
+        return {"ok": False, "payload": None, "diagnostics": diagnostics}
+
     if not isinstance(payload, dict):
-        raise ValueError("NBA live scoreboard endpoint returned JSON that is not an object.")
-    return payload, diagnostics
+        diagnostics["error"] = "NBA CDN endpoint returned JSON that is not an object."
+        return {"ok": False, "payload": payload, "diagnostics": diagnostics}
+
+    return {"ok": True, "payload": payload, "diagnostics": diagnostics}
+
+
+def _fetch_cdn_live_scoreboard_payload() -> tuple[dict[str, Any], dict[str, Any]]:
+    result = fetch_nba_cdn_json(NBA_LIVE_SCOREBOARD_CDN_URL)
+    if not result["ok"]:
+        raise ValueError(result["diagnostics"].get("error", "NBA CDN scoreboard request failed."))
+    return result["payload"], result["diagnostics"]
 
 
 def _fetch_cdn_live_scoreboard_games() -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -422,7 +464,7 @@ def _cdn_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     snapshot = _scoreboard_snapshot_from_games(
         game_id,
         games,
-        data_source="nba_live_cdn_scoreboard",
+        data_source="nba_cdn_live_scoreboard",
         raw_status_code=diagnostics.get("raw_status_code"),
     )
     if snapshot is not None:
@@ -597,6 +639,7 @@ def _snapshot_from_play_by_play(
     data_source: str,
     scoreboard_snapshot: dict[str, Any] | None = None,
     live_play_by_play_rows: int = 0,
+    raw_status_code: int | None = None,
 ) -> dict[str, Any]:
     latest = play_by_play.iloc[-1]
     snapshot = dict(scoreboard_snapshot or {})
@@ -615,6 +658,7 @@ def _snapshot_from_play_by_play(
             "has_play_by_play": True,
             "play_by_play_rows": len(play_by_play),
             "live_play_by_play_rows": live_play_by_play_rows,
+            "raw_status_code": raw_status_code,
             "fallback_reason": "",
             "warning": "",
             "_play_by_play_df": play_by_play,
@@ -627,17 +671,54 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
     """Return the best available live snapshot for an NBA game.
 
     Priority:
-    1. nba_api live play-by-play actions, when rows are available.
-    2. nba_api stats PlayByPlayV3, when rows are available.
-    3. NBA live scoreboard / boxscore fallback.
-    4. nba_api stats scoreboardv2 fallback.
-    5. Clean empty fallback payload.
+    1. Direct NBA CDN live play-by-play actions, when rows are available.
+    2. Direct NBA CDN live scoreboard fallback.
+    3. nba_api live PlayByPlay wrapper fallback.
+    4. nba_api live ScoreBoard wrapper fallback.
+    5. nba_api live BoxScore fallback.
+    6. stats ScoreboardV2 fallback.
+    7. Clean empty fallback payload.
     """
 
     clean_id = _clean_game_id(game_id)
     play_by_play_errors: list[str] = []
     play_by_play_rows = 0
     live_play_by_play_rows = 0
+
+    try:
+        raw_cdn_pbp, cdn_play_by_play, cdn_pbp_diagnostics = _fetch_cdn_live_play_by_play(clean_id)
+        live_play_by_play_rows = len(cdn_play_by_play)
+        play_by_play_rows = live_play_by_play_rows
+        if not cdn_play_by_play.empty:
+            try:
+                scoreboard_snapshot = _cdn_scoreboard_snapshot(clean_id) or _scoreboard_snapshot(clean_id)
+            except Exception:
+                scoreboard_snapshot = None
+            return _snapshot_from_play_by_play(
+                clean_id,
+                cdn_play_by_play,
+                "nba_cdn_live_play_by_play",
+                scoreboard_snapshot,
+                live_play_by_play_rows=live_play_by_play_rows,
+                raw_status_code=cdn_pbp_diagnostics.get("raw_status_code"),
+            )
+    except Exception as error:
+        play_by_play_errors.append(f"direct CDN live play-by-play failed: {error}")
+
+    try:
+        scoreboard_snapshot = _cdn_scoreboard_snapshot(clean_id)
+    except Exception as error:
+        scoreboard_snapshot = None
+        play_by_play_errors.append(f"direct CDN live scoreboard failed: {error}")
+
+    if scoreboard_snapshot is not None:
+        scoreboard_snapshot["fallback_reason"] = "play_by_play_empty_using_live_scoreboard"
+        scoreboard_snapshot["play_by_play_rows"] = play_by_play_rows
+        scoreboard_snapshot["live_play_by_play_rows"] = live_play_by_play_rows
+        if play_by_play_errors:
+            scoreboard_snapshot["play_by_play_error"] = " | ".join(play_by_play_errors)
+        scoreboard_snapshot.setdefault("warning", "Full champion model requires live play-by-play; using direct NBA CDN scoreboard fallback.")
+        return scoreboard_snapshot
 
     try:
         raw_live_pbp, live_play_by_play = _fetch_live_play_by_play(clean_id)
@@ -656,25 +737,7 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
                 live_play_by_play_rows=live_play_by_play_rows,
             )
     except Exception as error:
-        play_by_play_errors.append(f"live PlayByPlay failed: {error}")
-
-    try:
-        stats_play_by_play = _fetch_stats_play_by_play(clean_id)
-        play_by_play_rows = max(play_by_play_rows, len(stats_play_by_play))
-        if not stats_play_by_play.empty:
-            try:
-                scoreboard_snapshot = _scoreboard_snapshot(clean_id)
-            except Exception:
-                scoreboard_snapshot = None
-            return _snapshot_from_play_by_play(
-                clean_id,
-                stats_play_by_play,
-                "nba_api_stats_play_by_playv3",
-                scoreboard_snapshot,
-                live_play_by_play_rows=live_play_by_play_rows,
-            )
-    except Exception as error:
-        play_by_play_errors.append(f"stats PlayByPlayV3 failed: {error}")
+        play_by_play_errors.append(f"nba_api live PlayByPlay failed: {error}")
 
     try:
         scoreboard_snapshot = _scoreboard_snapshot(clean_id)
@@ -686,10 +749,10 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
             scoreboard_snapshot["play_by_play_error"] = " | ".join(play_by_play_errors)
             scoreboard_snapshot["fallback_reason"] = "play_by_play_unavailable_using_live_fallback"
         else:
-            if scoreboard_snapshot.get("data_source") == "nba_live_cdn_scoreboard":
+            if scoreboard_snapshot.get("data_source") == "nba_cdn_live_scoreboard":
                 scoreboard_snapshot["fallback_reason"] = "play_by_play_empty_using_live_scoreboard"
             else:
-                scoreboard_snapshot["fallback_reason"] = "Live and stats play-by-play returned 0 rows. Using scoreboard fallback."
+                scoreboard_snapshot["fallback_reason"] = "Live play-by-play returned 0 rows. Using scoreboard fallback."
         scoreboard_snapshot["play_by_play_rows"] = play_by_play_rows
         scoreboard_snapshot["live_play_by_play_rows"] = live_play_by_play_rows
         scoreboard_snapshot.setdefault("warning", "Full champion model could not run because live play-by-play is unavailable.")
@@ -729,7 +792,7 @@ def get_today_games() -> list[dict[str, Any]]:
                 game,
                 game_id,
                 "today_live_cdn_scoreboard",
-                data_source="nba_live_cdn_scoreboard",
+                data_source="nba_cdn_live_scoreboard",
                 raw_status_code=cdn_diagnostics.get("raw_status_code"),
             )
             live_games.append(

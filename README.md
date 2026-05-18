@@ -146,10 +146,10 @@ The Live Game tab displays the current period, clock, score, home/away win proba
 
 Live data fallback order:
 
-1. `nba_api.live.nba.endpoints.playbyplay.PlayByPlay`, which enables full Champion Model inference when live actions are available.
-2. Stats `PlayByPlayV3`, useful for completed or historical-style play-by-play.
-3. Direct NBA CDN live scoreboard JSON at `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`.
-4. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, which wraps the same NBA live scoreboard feed.
+1. Direct NBA CDN live play-by-play JSON at `https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_GAME_ID.json`.
+2. Direct NBA CDN live scoreboard JSON at `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`.
+3. `nba_api.live.nba.endpoints.playbyplay.PlayByPlay`, kept only as a fallback wrapper.
+4. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, kept only as a fallback wrapper.
 5. `nba_api.live.nba.endpoints.boxscore.BoxScore`, as score/status support when live scoreboard is broken.
 6. `ScoreboardV2`, only as a last free-data fallback.
 
