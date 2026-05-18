@@ -18,6 +18,7 @@ from datetime import date
 from typing import Any
 
 import pandas as pd
+from nba_api.live.nba.endpoints import scoreboard as live_scoreboard
 from nba_api.stats.endpoints import playbyplayv3, scoreboardv2
 
 SPORTSDATA_IO_API_KEY_ENV = "SPORTSDATA_IO_API_KEY"
@@ -106,7 +107,98 @@ def _fetch_scoreboard_frames(game_date: str | None = None) -> tuple[pd.DataFrame
     return games, line_score
 
 
-def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+def _fetch_live_scoreboard_games() -> list[dict[str, Any]]:
+    response = live_scoreboard.ScoreBoard(timeout=10)
+    if hasattr(response, "get_dict"):
+        payload = response.get_dict()
+    elif hasattr(response, "games"):
+        games = response.games.get_dict()
+        if isinstance(games, list):
+            return games
+        if isinstance(games, dict):
+            nested_games = games.get("games", [])
+            return nested_games if isinstance(nested_games, list) else []
+        return []
+    else:
+        return []
+    scoreboard_payload = payload.get("scoreboard", payload)
+    games = scoreboard_payload.get("games", [])
+    return games if isinstance(games, list) else []
+
+
+def _live_team_abbreviation(team: dict[str, Any], fallback: str) -> str:
+    return (
+        _safe_str(team.get("teamTricode"))
+        or _safe_str(team.get("teamAbbreviation"))
+        or _safe_str(team.get("teamName"))
+        or fallback
+    )
+
+
+def _live_team_name(team: dict[str, Any], fallback: str) -> str:
+    city = _safe_str(team.get("teamCity"))
+    name = _safe_str(team.get("teamName"))
+    if city and name:
+        return f"{city} {name}"
+    return name or _live_team_abbreviation(team, fallback)
+
+
+def _live_last_play(game: dict[str, Any], status: str) -> str:
+    for key in ["lastPlay", "lastPlayDescription", "lastAction"]:
+        value = game.get(key)
+        if isinstance(value, dict):
+            text = _safe_str(value.get("description")) or _safe_str(value.get("actionType"))
+            if text:
+                return text
+        text = _safe_str(value)
+        if text:
+            return text
+    actions = game.get("actions")
+    if isinstance(actions, list) and actions:
+        latest = actions[-1]
+        if isinstance(latest, dict):
+            text = _safe_str(latest.get("description")) or _safe_str(latest.get("actionType"))
+            if text:
+                return text
+    return status
+
+
+def _live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    for game in _fetch_live_scoreboard_games():
+        current_id = _clean_game_id(game.get("gameId") or game.get("game_id") or game.get("GAME_ID"))
+        if current_id != game_id:
+            continue
+
+        home = game.get("homeTeam") or {}
+        away = game.get("awayTeam") or {}
+        status = _safe_str(game.get("gameStatusText"), "Live scoreboard available")
+        clock = _safe_str(game.get("gameClock"), status)
+        game_state = _safe_str(game.get("gameState")) or _safe_str(game.get("gameStatus"))
+
+        return {
+            "game_id": game_id,
+            "status": status,
+            "game_status": game_state,
+            "game_state": game_state,
+            "period": _safe_int(game.get("period")),
+            "clock": clock,
+            "game_clock": clock,
+            "home_score": _safe_int(home.get("score")),
+            "away_score": _safe_int(away.get("score")),
+            "home_team": _live_team_abbreviation(home, "Home"),
+            "away_team": _live_team_abbreviation(away, "Away"),
+            "home_team_name": _live_team_name(home, "Home"),
+            "away_team_name": _live_team_name(away, "Away"),
+            "home_team_id": _safe_int(home.get("teamId")),
+            "away_team_id": _safe_int(away.get("teamId")),
+            "last_play": _live_last_play(game, status),
+            "data_source": "nba_api_live_scoreboard",
+            "has_play_by_play": False,
+        }
+    return None
+
+
+def _stats_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     games, line_score = _fetch_scoreboard_frames()
     if games.empty or "GAME_ID" not in games.columns:
         return None
@@ -151,9 +243,20 @@ def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
         "home_team": home_team,
         "away_team": away_team,
         "last_play": status,
-        "data_source": "nba_api_scoreboard",
+        "data_source": "nba_api_stats_scoreboardv2",
         "has_play_by_play": False,
     }
+
+
+def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    try:
+        snapshot = _live_scoreboard_snapshot(game_id)
+        if snapshot is not None:
+            return snapshot
+    except Exception:
+        pass
+
+    return _stats_scoreboard_snapshot(game_id)
 
 
 def _paid_provider_placeholders(game_id: str) -> None:
@@ -174,22 +277,22 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
 
     Priority:
     1. nba_api play-by-play, when rows are available.
-    2. nba_api scoreboard fallback.
-    3. Clean empty fallback payload.
+    2. nba_api live scoreboard fallback.
+    3. nba_api stats scoreboardv2 fallback.
+    4. Clean empty fallback payload.
     """
 
     clean_id = _clean_game_id(game_id)
-    scoreboard_snapshot: dict[str, Any] | None = None
-
-    try:
-        scoreboard_snapshot = _scoreboard_snapshot(clean_id)
-    except Exception:
-        scoreboard_snapshot = None
+    play_by_play_error: str | None = None
 
     try:
         play_by_play = _fetch_play_by_play(clean_id)
         if not play_by_play.empty:
             latest = play_by_play.iloc[-1]
+            try:
+                scoreboard_snapshot = _scoreboard_snapshot(clean_id)
+            except Exception:
+                scoreboard_snapshot = None
             snapshot = dict(scoreboard_snapshot or {})
             snapshot.update(
                 {
@@ -209,10 +312,16 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
             )
             return snapshot
     except Exception as error:
-        if scoreboard_snapshot is not None:
-            scoreboard_snapshot["play_by_play_error"] = str(error)
+        play_by_play_error = str(error)
+
+    try:
+        scoreboard_snapshot = _scoreboard_snapshot(clean_id)
+    except Exception:
+        scoreboard_snapshot = None
 
     if scoreboard_snapshot is not None:
+        if play_by_play_error:
+            scoreboard_snapshot["play_by_play_error"] = play_by_play_error
         return scoreboard_snapshot
 
     _paid_provider_placeholders(clean_id)
@@ -232,7 +341,39 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
 
 
 def get_today_games() -> list[dict[str, Any]]:
-    """Return today's games from nba_api scoreboard data."""
+    """Return today's games from live scoreboard first, then stats scoreboardv2."""
+
+    try:
+        live_games = []
+        for game in _fetch_live_scoreboard_games():
+            game_id = _clean_game_id(game.get("gameId") or game.get("game_id") or game.get("GAME_ID"))
+            home = game.get("homeTeam") or {}
+            away = game.get("awayTeam") or {}
+            status = _safe_str(game.get("gameStatusText"), "Scheduled")
+            clock = _safe_str(game.get("gameClock"), status)
+            live_games.append(
+                {
+                    "GAME_ID": game_id,
+                    "GAMECODE": _safe_str(game.get("gameCode")),
+                    "status": status,
+                    "game_status": _safe_str(game.get("gameState")) or _safe_str(game.get("gameStatus")),
+                    "period": _safe_int(game.get("period")),
+                    "clock": clock,
+                    "home_score": _safe_int(home.get("score")),
+                    "away_score": _safe_int(away.get("score")),
+                    "home_team_id": _safe_int(home.get("teamId")),
+                    "away_team_id": _safe_int(away.get("teamId")),
+                    "home_team": _live_team_abbreviation(home, ""),
+                    "away_team": _live_team_abbreviation(away, ""),
+                    "home_team_name": _live_team_name(home, ""),
+                    "away_team_name": _live_team_name(away, ""),
+                    "data_source": "nba_api_live_scoreboard",
+                }
+            )
+        if live_games:
+            return live_games
+    except Exception:
+        pass
 
     games, line_score = _fetch_scoreboard_frames()
     if games.empty:
