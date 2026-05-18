@@ -147,10 +147,11 @@ The Live Game tab displays the current period, clock, score, home/away win proba
 Live data fallback order:
 
 1. `PlayByPlayV3` rows, which enable full Champion Model inference.
-2. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, which enables live score/clock fallback probability when play-by-play is delayed.
-3. `ScoreboardV2`, only as a last free-data fallback.
+2. Direct NBA CDN live scoreboard JSON at `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`.
+3. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, which wraps the same NBA live scoreboard feed.
+4. `ScoreboardV2`, only as a last free-data fallback.
 
-If both free live endpoints fail or return stale data, reliable production live tracking requires a dedicated live sports data provider.
+If the CDN/debug output says `NBA live scoreboard endpoint is not returning JSON from this environment`, or if all free endpoints return stale scheduled data, reliable production live tracking requires a dedicated live sports data provider.
 
 Live debugging:
 

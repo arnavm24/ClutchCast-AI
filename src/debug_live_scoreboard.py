@@ -14,8 +14,21 @@ import json
 from datetime import date
 from pprint import pprint
 
+import requests
 from nba_api.live.nba.endpoints import scoreboard as live_scoreboard
 from nba_api.stats.endpoints import scoreboardv2
+
+NBA_LIVE_SCOREBOARD_CDN_URL = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+NBA_LIVE_SCOREBOARD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://www.nba.com/",
+    "Origin": "https://www.nba.com",
+}
 
 
 def print_section(title: str) -> None:
@@ -37,6 +50,45 @@ def coerce_live_games(payload):
         nested = games.get("games", [])
         return nested if isinstance(nested, list) else []
     return []
+
+
+def print_direct_cdn_request(label: str, headers: dict | None = None) -> None:
+    print_section(label)
+    print(f"URL: {NBA_LIVE_SCOREBOARD_CDN_URL}")
+    try:
+        response = requests.get(NBA_LIVE_SCOREBOARD_CDN_URL, headers=headers, timeout=10)
+        print(f"HTTP status code: {response.status_code}")
+        print(f"response content-type: {response.headers.get('content-type', '')}")
+        raw_text = response.text or ""
+        print("first 500 characters of raw response text:")
+        print(raw_text[:500])
+        try:
+            payload = response.json()
+        except ValueError as error:
+            print(f"parses as JSON: no ({type(error).__name__}: {error})")
+            print("NBA live scoreboard endpoint is not returning JSON from this environment.")
+            return
+
+        print("parses as JSON: yes")
+        print(f"top-level type: {type(payload).__name__}")
+        if isinstance(payload, dict):
+            print(f"top-level keys: {list(payload.keys())}")
+            scoreboard_payload = payload.get("scoreboard", payload)
+            if isinstance(scoreboard_payload, dict):
+                print(f"scoreboard keys: {list(scoreboard_payload.keys())}")
+        games = coerce_live_games(payload)
+        print(f"number of games found: {len(games)}")
+        if games:
+            print("first direct-CDN game summary:")
+            first = games[0]
+            for key in ["gameId", "gameCode", "gameStatus", "gameStatusText", "gameState", "period", "gameClock"]:
+                print(f"{key}: {first.get(key)}")
+            print("homeTeam:")
+            pprint(first.get("homeTeam"))
+            print("awayTeam:")
+            pprint(first.get("awayTeam"))
+    except Exception as error:
+        print(f"direct CDN request error: {type(error).__name__}: {error}")
 
 
 def print_live_scoreboard() -> None:
@@ -118,6 +170,8 @@ def print_stats_scoreboard() -> None:
 
 
 def main() -> None:
+    print_direct_cdn_request("Direct NBA CDN Live Scoreboard - No Custom Headers")
+    print_direct_cdn_request("Direct NBA CDN Live Scoreboard - Browser Headers", NBA_LIVE_SCOREBOARD_HEADERS)
     print_live_scoreboard()
     print_stats_scoreboard()
 

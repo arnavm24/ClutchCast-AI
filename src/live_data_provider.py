@@ -18,11 +18,23 @@ from datetime import date
 from typing import Any
 
 import pandas as pd
+import requests
 from nba_api.live.nba.endpoints import scoreboard as live_scoreboard
 from nba_api.stats.endpoints import playbyplayv3, scoreboardv2
 
 SPORTSDATA_IO_API_KEY_ENV = "SPORTSDATA_IO_API_KEY"
 API_SPORTS_API_KEY_ENV = "API_SPORTS_API_KEY"
+NBA_LIVE_SCOREBOARD_CDN_URL = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json"
+NBA_LIVE_SCOREBOARD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://www.nba.com/",
+    "Origin": "https://www.nba.com",
+}
 
 
 def _clean_game_id(game_id: str) -> str:
@@ -122,6 +134,37 @@ def _coerce_live_games(payload: Any) -> list[dict[str, Any]]:
         if isinstance(nested_games, list):
             return [game for game in nested_games if isinstance(game, dict)]
     return []
+
+
+def _fetch_cdn_live_scoreboard_payload() -> tuple[dict[str, Any], dict[str, Any]]:
+    response = requests.get(
+        NBA_LIVE_SCOREBOARD_CDN_URL,
+        headers=NBA_LIVE_SCOREBOARD_HEADERS,
+        timeout=10,
+    )
+    raw_text = response.text or ""
+    diagnostics = {
+        "url": NBA_LIVE_SCOREBOARD_CDN_URL,
+        "raw_status_code": response.status_code,
+        "content_type": response.headers.get("content-type", ""),
+        "raw_response_start": raw_text[:500],
+    }
+    try:
+        payload = response.json()
+    except ValueError as error:
+        raise ValueError(
+            "NBA live scoreboard endpoint is not returning JSON from this environment. "
+            f"status={response.status_code}, content_type={diagnostics['content_type']}, "
+            f"body_start={raw_text[:160]!r}"
+        ) from error
+    if not isinstance(payload, dict):
+        raise ValueError("NBA live scoreboard endpoint returned JSON that is not an object.")
+    return payload, diagnostics
+
+
+def _fetch_cdn_live_scoreboard_games() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    payload, diagnostics = _fetch_cdn_live_scoreboard_payload()
+    return _coerce_live_games(payload), diagnostics
 
 
 def _fetch_live_scoreboard_payload() -> dict[str, Any]:
@@ -224,7 +267,13 @@ def _team_ids_match_game(game: dict[str, Any], requested_team_ids: tuple[int, in
     return _safe_int(home.get("teamId")) == requested_team_ids[0] and _safe_int(away.get("teamId")) == requested_team_ids[1]
 
 
-def _normalize_live_scoreboard_game(game: dict[str, Any], requested_id: str, matched_by: str) -> dict[str, Any]:
+def _normalize_live_scoreboard_game(
+    game: dict[str, Any],
+    requested_id: str,
+    matched_by: str,
+    data_source: str = "nba_api_live_scoreboard",
+    raw_status_code: int | None = None,
+) -> dict[str, Any]:
     home = game.get("homeTeam") or {}
     away = game.get("awayTeam") or {}
     status = _safe_str(game.get("gameStatusText"), "Live scoreboard available")
@@ -254,27 +303,53 @@ def _normalize_live_scoreboard_game(game: dict[str, Any], requested_id: str, mat
         "home_team_id": _safe_int(home.get("teamId")),
         "away_team_id": _safe_int(away.get("teamId")),
         "last_play": _live_last_play(game, status),
-        "data_source": "nba_api_live_scoreboard",
+        "data_source": data_source,
         "has_play_by_play": False,
         "matched_by": matched_by,
         "raw_id_used": raw_id,
+        "raw_status_code": raw_status_code,
         "GAMECODE": _safe_str(game.get("gameCode") or game.get("GAMECODE")),
         "warning": warning,
     }
 
 
-def _live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
-    games = _fetch_live_scoreboard_games()
+def _scoreboard_snapshot_from_games(
+    game_id: str,
+    games: list[dict[str, Any]],
+    data_source: str,
+    raw_status_code: int | None = None,
+) -> dict[str, Any] | None:
     for game in games:
         matched_by = _direct_match_game(game, game_id)
         if matched_by:
-            return _normalize_live_scoreboard_game(game, game_id, matched_by)
+            return _normalize_live_scoreboard_game(game, game_id, matched_by, data_source, raw_status_code)
 
     requested_team_ids = _stats_team_ids_for_game(game_id)
     for game in games:
         if _team_ids_match_game(game, requested_team_ids):
-            return _normalize_live_scoreboard_game(game, game_id, "teamIds")
+            return _normalize_live_scoreboard_game(game, game_id, "teamIds", data_source, raw_status_code)
     return None
+
+
+def _cdn_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    games, diagnostics = _fetch_cdn_live_scoreboard_games()
+    snapshot = _scoreboard_snapshot_from_games(
+        game_id,
+        games,
+        data_source="nba_live_cdn_scoreboard",
+        raw_status_code=diagnostics.get("raw_status_code"),
+    )
+    if snapshot is not None:
+        return snapshot
+    return None
+
+
+def _live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    return _scoreboard_snapshot_from_games(
+        game_id,
+        _fetch_live_scoreboard_games(),
+        data_source="nba_api_live_scoreboard",
+    )
 
 
 def _stats_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
@@ -330,18 +405,30 @@ def _stats_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
 
 
 def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    cdn_error = ""
     try:
-        snapshot = _live_scoreboard_snapshot(game_id)
+        snapshot = _cdn_scoreboard_snapshot(game_id)
         if snapshot is not None:
             return snapshot
     except Exception as error:
+        cdn_error = str(error)
+
+    live_error = ""
+    try:
+        snapshot = _live_scoreboard_snapshot(game_id)
+        if snapshot is not None:
+            if cdn_error:
+                snapshot["cdn_scoreboard_error"] = cdn_error
+            return snapshot
+    except Exception as error:
         live_error = str(error)
-    else:
-        live_error = ""
 
     snapshot = _stats_scoreboard_snapshot(game_id)
-    if snapshot is not None and live_error:
-        snapshot["live_scoreboard_error"] = live_error
+    if snapshot is not None:
+        if cdn_error:
+            snapshot["cdn_scoreboard_error"] = cdn_error
+        if live_error:
+            snapshot["live_scoreboard_error"] = live_error
     return snapshot
 
 
@@ -415,7 +502,10 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
             scoreboard_snapshot["play_by_play_error"] = play_by_play_error
             scoreboard_snapshot["fallback_reason"] = f"PlayByPlayV3 failed: {play_by_play_error}. Using scoreboard fallback."
         else:
-            scoreboard_snapshot["fallback_reason"] = "PlayByPlayV3 returned 0 rows. Using scoreboard fallback."
+            if scoreboard_snapshot.get("data_source") == "nba_live_cdn_scoreboard":
+                scoreboard_snapshot["fallback_reason"] = "play_by_play_empty_using_live_scoreboard"
+            else:
+                scoreboard_snapshot["fallback_reason"] = "PlayByPlayV3 returned 0 rows. Using scoreboard fallback."
         scoreboard_snapshot["play_by_play_rows"] = play_by_play_rows
         scoreboard_snapshot.setdefault("warning", "Full champion model could not run because live play-by-play is unavailable.")
         return scoreboard_snapshot
@@ -446,6 +536,44 @@ def get_today_games() -> list[dict[str, Any]]:
 
     try:
         live_games = []
+        cdn_games, cdn_diagnostics = _fetch_cdn_live_scoreboard_games()
+        for game in cdn_games:
+            game_id = _clean_game_id(game.get("gameId") or game.get("game_id") or game.get("GAME_ID"))
+            normalized = _normalize_live_scoreboard_game(
+                game,
+                game_id,
+                "today_live_cdn_scoreboard",
+                data_source="nba_live_cdn_scoreboard",
+                raw_status_code=cdn_diagnostics.get("raw_status_code"),
+            )
+            live_games.append(
+                {
+                    "GAME_ID": normalized["raw_id_used"] or game_id,
+                    "GAMECODE": normalized.get("GAMECODE", ""),
+                    "status": normalized["status"],
+                    "game_status": normalized["game_status"],
+                    "game_state": normalized["game_state"],
+                    "period": normalized["period"],
+                    "clock": normalized["clock"],
+                    "home_team": normalized["home_team"],
+                    "away_team": normalized["away_team"],
+                    "home_score": normalized["home_score"],
+                    "away_score": normalized["away_score"],
+                    "home_team_id": normalized["home_team_id"],
+                    "away_team_id": normalized["away_team_id"],
+                    "data_source": normalized["data_source"],
+                    "raw_id_used": normalized["raw_id_used"],
+                    "raw_status_code": normalized["raw_status_code"],
+                    "matched_by": normalized["matched_by"],
+                }
+            )
+        if live_games:
+            return live_games
+    except Exception:
+        pass
+
+    try:
+        live_games = []
         for game in _fetch_live_scoreboard_games():
             game_id = _clean_game_id(game.get("gameId") or game.get("game_id") or game.get("GAME_ID"))
             normalized = _normalize_live_scoreboard_game(game, game_id, "today_live_scoreboard")
@@ -466,6 +594,7 @@ def get_today_games() -> list[dict[str, Any]]:
                     "away_team_id": normalized["away_team_id"],
                     "data_source": normalized["data_source"],
                     "raw_id_used": normalized["raw_id_used"],
+                    "raw_status_code": normalized["raw_status_code"],
                     "matched_by": normalized["matched_by"],
                 }
             )
