@@ -771,9 +771,14 @@ def show_backend_status(result: dict | None) -> None:
 
 def show_live_prediction(payload: dict, health: dict | None, champion_label: str) -> None:
     game_id = str(payload.get("game_id", "")).zfill(10)
-    home_team, away_team = get_team_labels(game_id) if game_id and game_id != "0000000000" else ("Home", "Away")
+    fallback_home, fallback_away = get_team_labels(game_id) if game_id and game_id != "0000000000" else ("Home", "Away")
+    home_team = str(payload.get("home_team") or fallback_home)
+    away_team = str(payload.get("away_team") or fallback_away)
     model_name = payload.get("model_name") or payload.get("champion", {}).get("model_name") or champion_label
     champion_name = payload.get("champion", {}).get("model_name", champion_label)
+    has_play_by_play = bool(payload.get("has_play_by_play"))
+    prediction_source = str(payload.get("prediction_source", "live_prediction"))
+    data_source = str(payload.get("data_source", "backend"))
     render_scoreboard(
         home_team=home_team,
         away_team=away_team,
@@ -787,19 +792,42 @@ def show_live_prediction(payload: dict, health: dict | None, champion_label: str
         champion_label=str(champion_name),
         eyebrow="Live Game Center",
     )
+    if not has_play_by_play or prediction_source == "scoreboard_fallback_baseline":
+        st.warning("Play-by-play is not available yet, so ClutchCast is using scoreboard fallback.")
     status_text = "Backend online" if health and health.get("ok") else "Backend status unknown"
     cards = [
         render_metric_card("Last Play", short_text(payload.get("last_play", "No play available"), 42), short_text(payload.get("last_play", "No play available"), 160)),
-        render_metric_card("Champion Model", str(champion_name), "Live prediction uses the backend champion inference path."),
-        render_metric_card("Backend Status", status_text, f"GET /predict/{esc(game_id)}?mode=live"),
-        render_metric_card("Update Mode", str(payload.get("mode", "live")).title(), "Auto-refresh polls the Flask backend every 10 seconds."),
+        render_metric_card("Prediction Source", str(model_name), prediction_source.replace("_", " ").title()),
+        render_metric_card("Backend Status", status_text, f"Data source: {data_source.replace('_', ' ')}"),
+        render_metric_card("Champion Model", str(champion_name), "Automatically used once live play-by-play becomes available."),
     ]
     render_html('<div class="metric-grid">' + "".join(cards) + '</div>')
 
 
+def show_today_games_helper() -> None:
+    if not st.button("Load Today's Games", key="live_load_today_games"):
+        return
+
+    with st.spinner("Fetching today's games from the live backend..."):
+        result = fetch_backend_json("/games/today", timeout=10.0)
+
+    if not result["ok"]:
+        error = result.get("data", {}).get("error", "Could not load today's games.")
+        st.error(error)
+        return
+
+    games = result.get("data", {}).get("games", [])
+    if not games:
+        st.info("No NBA games were returned by the scoreboard endpoint for today.")
+        return
+
+    display = pd.DataFrame(games)
+    st.dataframe(clean_table_columns(display), width="stretch", hide_index=True)
+
+
 def show_live_game_tab(champion_label: str) -> None:
     st.subheader("Live Game")
-    render_html('<div class="tab-intro">Streamlit polls the local Flask backend for live NBA updates. Start the backend first with <code>python backend/app.py</code>. Historical tabs use saved CSV/report files; this tab uses <code>/predict/&lt;game_id&gt;?mode=live</code>.</div>')
+    render_html('<div class="tab-intro">Streamlit polls the local Flask backend for live NBA updates. Start the backend first with <code>python backend/app.py</code>. Historical tabs use saved CSV/report files; this tab uses <code>/predict/&lt;game_id&gt;?mode=live</code>. If live play-by-play is delayed, the backend falls back to the NBA scoreboard and then switches to champion-model inference when play-by-play appears.</div>')
 
     col1, col2, col3 = st.columns([1.4, 1, 1])
     with col1:
@@ -813,6 +841,7 @@ def show_live_game_tab(champion_label: str) -> None:
 
     check_status = st.button("Check Backend Status", key="live_check_backend")
     fetch_live = st.button("Fetch Live Prediction", type="primary", key="live_fetch_prediction")
+    show_today_games_helper()
 
     if auto_refresh:
         components.html("<script>setTimeout(function(){ window.parent.location.reload(); }, 10000);</script>", height=0)
