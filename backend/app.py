@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import time
+import traceback
 
 from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
@@ -13,7 +14,7 @@ if str(SRC_DIR) not in sys.path:
 
 from champion_inference import latest_prediction_payload, load_champion_metadata, predict_game_state
 from game_state import build_game_state
-from live_data_provider import get_live_game_snapshot, get_today_games
+from live_data_provider import get_live_debug_diagnostics, get_live_game_snapshot, get_live_scoreboard_snapshot, get_today_games
 from load_data import fetch_play_by_play
 
 
@@ -81,25 +82,15 @@ def public_snapshot(snapshot: dict) -> dict:
     return {key: value for key, value in snapshot.items() if not key.startswith("_")}
 
 
-def live_predict_payload(game_id: str) -> dict:
-    snapshot = get_live_game_snapshot(game_id)
-    champion = load_champion_metadata()
-
-    if snapshot.get("has_play_by_play") and isinstance(snapshot.get("_play_by_play_df"), pd.DataFrame):
-        game_state = build_game_state_from_live_play_by_play(game_id, snapshot["_play_by_play_df"])
-        predictions = predict_game_state(game_state)
-        payload = latest_prediction_payload(predictions)
-        payload.update(public_snapshot(snapshot))
-        payload["mode"] = "live"
-        payload["champion"] = champion
-        payload["prediction_source"] = "champion_model_live_play_by_play"
-        payload["model_name"] = payload.get("model_name") or champion.get("model_name", "Champion Model")
-        payload["play_by_play_rows"] = int(snapshot.get("play_by_play_rows") or len(snapshot["_play_by_play_df"]))
-        payload["live_play_by_play_rows"] = int(snapshot.get("live_play_by_play_rows") or 0)
-        payload["fallback_reason"] = ""
-        payload["warning"] = ""
-        return payload
-
+def scoreboard_fallback_payload(
+    snapshot: dict,
+    champion: dict,
+    fallback_reason: str,
+    warning: str,
+    error_stage: str | None = None,
+    exception: Exception | None = None,
+    source_snapshot: dict | None = None,
+) -> dict:
     home_win_prob = scoreboard_baseline_home_probability(snapshot)
     away_win_prob = 1.0 - home_win_prob
     payload = public_snapshot(snapshot)
@@ -114,13 +105,96 @@ def live_predict_payload(game_id: str) -> dict:
             "away_win_prob": away_win_prob,
             "home_win_prob_pct": round(home_win_prob * 100, 1),
             "away_win_prob_pct": round(away_win_prob * 100, 1),
-            "play_by_play_rows": int(snapshot.get("play_by_play_rows") or 0),
-            "live_play_by_play_rows": int(snapshot.get("live_play_by_play_rows") or 0),
-            "fallback_reason": snapshot.get("fallback_reason") or "Live play-by-play is unavailable; using scoreboard fallback.",
-            "warning": snapshot.get("warning") or "Full champion model could not run because live play-by-play is unavailable.",
+            "play_by_play_rows": int((source_snapshot or snapshot).get("play_by_play_rows") or snapshot.get("play_by_play_rows") or 0),
+            "live_play_by_play_rows": int((source_snapshot or snapshot).get("live_play_by_play_rows") or snapshot.get("live_play_by_play_rows") or 0),
+            "fallback_reason": fallback_reason,
+            "warning": warning,
         }
     )
+    if error_stage:
+        payload["error_stage"] = error_stage
+    if exception is not None:
+        payload["exception"] = str(exception)
     return payload
+
+
+def live_scoreboard_fallback_for_error(game_id: str, champion: dict, source_snapshot: dict, error_stage: str, error: Exception) -> dict:
+    print(f"[live] {error_stage} failed for game {str(game_id).zfill(10)}: {error}")
+    traceback.print_exc()
+
+    try:
+        fallback_snapshot = get_live_scoreboard_snapshot(game_id) or {}
+    except Exception as fallback_error:
+        print(f"[live] scoreboard fallback fetch failed for game {str(game_id).zfill(10)}: {fallback_error}")
+        traceback.print_exc()
+        fallback_snapshot = {}
+
+    if not fallback_snapshot:
+        fallback_snapshot = public_snapshot(source_snapshot)
+        fallback_snapshot["has_play_by_play"] = False
+
+    fallback_snapshot["play_by_play_rows"] = int(source_snapshot.get("play_by_play_rows") or 0)
+    fallback_snapshot["live_play_by_play_rows"] = int(source_snapshot.get("live_play_by_play_rows") or 0)
+    fallback_snapshot.setdefault("data_source", "live_scoreboard_fallback")
+    fallback_snapshot.setdefault("fallback_reason", f"{error_stage}_failed_using_scoreboard_fallback")
+    fallback_snapshot.setdefault("warning", "Live play-by-play was available, but full champion inference failed; using scoreboard fallback.")
+
+    return scoreboard_fallback_payload(
+        fallback_snapshot,
+        champion,
+        fallback_reason=f"{error_stage}_failed_using_scoreboard_fallback",
+        warning="Live play-by-play was available, but full champion inference failed; using scoreboard fallback.",
+        error_stage=error_stage,
+        exception=error,
+        source_snapshot=source_snapshot,
+    )
+
+
+def live_predict_payload(game_id: str) -> dict:
+    snapshot = get_live_game_snapshot(game_id)
+    champion = load_champion_metadata()
+
+    if snapshot.get("has_play_by_play") and isinstance(snapshot.get("_play_by_play_df"), pd.DataFrame):
+        try:
+            game_state = build_game_state_from_live_play_by_play(game_id, snapshot["_play_by_play_df"])
+        except Exception as error:
+            return live_scoreboard_fallback_for_error(
+                game_id,
+                champion,
+                snapshot,
+                "build_game_state_from_live_play_by_play",
+                error,
+            )
+
+        try:
+            predictions = predict_game_state(game_state)
+            payload = latest_prediction_payload(predictions)
+        except Exception as error:
+            return live_scoreboard_fallback_for_error(
+                game_id,
+                champion,
+                snapshot,
+                "champion_inference",
+                error,
+            )
+
+        payload.update(public_snapshot(snapshot))
+        payload["mode"] = "live"
+        payload["champion"] = champion
+        payload["prediction_source"] = "champion_model_live_play_by_play"
+        payload["model_name"] = payload.get("model_name") or champion.get("model_name", "Champion Model")
+        payload["play_by_play_rows"] = int(snapshot.get("play_by_play_rows") or len(snapshot["_play_by_play_df"]))
+        payload["live_play_by_play_rows"] = int(snapshot.get("live_play_by_play_rows") or 0)
+        payload["fallback_reason"] = ""
+        payload["warning"] = ""
+        return payload
+
+    return scoreboard_fallback_payload(
+        snapshot,
+        champion,
+        fallback_reason=snapshot.get("fallback_reason") or "Live play-by-play is unavailable; using scoreboard fallback.",
+        warning=snapshot.get("warning") or "Full champion model could not run because live play-by-play is unavailable.",
+    )
 
 
 def predict_payload(game_id: str, mode: str) -> dict:
@@ -148,6 +222,15 @@ def games_today():
         return jsonify({"count": len(games), "games": games})
     except Exception as error:
         return jsonify({"error": str(error), "games": [], "count": 0}), 502
+
+
+@app.get("/debug/live/<game_id>")
+def debug_live(game_id: str):
+    try:
+        return jsonify(get_live_debug_diagnostics(game_id))
+    except Exception as error:
+        traceback.print_exc()
+        return jsonify({"error": str(error), "game_id": str(game_id).zfill(10)}), 502
 
 
 @app.get("/predict/<game_id>")

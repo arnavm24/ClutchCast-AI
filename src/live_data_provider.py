@@ -60,6 +60,18 @@ LIVE_PLAY_BY_PLAY_COLUMNS = [
     "videoAvailable",
     "actionId",
 ]
+GAME_STATE_REQUIRED_PLAY_BY_PLAY_COLUMNS = [
+    "gameId",
+    "actionNumber",
+    "clock",
+    "period",
+    "teamTricode",
+    "playerName",
+    "description",
+    "actionType",
+    "scoreHome",
+    "scoreAway",
+]
 
 
 def _clean_game_id(game_id: str) -> str:
@@ -146,11 +158,16 @@ def live_play_by_play_to_dataframe(raw_live_pbp: dict[str, Any]) -> pd.DataFrame
         game = {}
     game_id = _safe_str(game.get("gameId") or raw_live_pbp.get("gameId", ""))
     rows = []
-    for action in _extract_live_actions(raw_live_pbp):
+    for index, action in enumerate(_extract_live_actions(raw_live_pbp), start=1):
         rows.append(
             {
                 "gameId": _safe_str(action.get("gameId"), game_id),
-                "actionNumber": _safe_int(action.get("actionNumber") or action.get("actionId")),
+                "actionNumber": _safe_int(
+                    action.get("actionNumber")
+                    or action.get("orderNumber")
+                    or action.get("actionId"),
+                    index,
+                ),
                 "clock": _safe_str(action.get("clock")),
                 "period": _safe_int(action.get("period")),
                 "teamId": _safe_int(action.get("teamId")),
@@ -173,6 +190,54 @@ def live_play_by_play_to_dataframe(raw_live_pbp: dict[str, Any]) -> pd.DataFrame
         )
 
     return pd.DataFrame(rows, columns=LIVE_PLAY_BY_PLAY_COLUMNS)
+
+
+def validate_live_play_by_play_dataframe(df: pd.DataFrame) -> dict[str, Any]:
+    """Validate converted live play-by-play without raising."""
+
+    diagnostics: dict[str, Any] = {
+        "is_valid": False,
+        "row_count": int(len(df)) if isinstance(df, pd.DataFrame) else 0,
+        "columns": list(df.columns) if isinstance(df, pd.DataFrame) else [],
+        "missing_columns": [],
+        "score_columns_parseable_or_fillable": False,
+        "has_period": False,
+        "has_clock": False,
+        "errors": [],
+    }
+
+    if not isinstance(df, pd.DataFrame):
+        diagnostics["errors"].append("Converted play-by-play is not a DataFrame.")
+        return diagnostics
+
+    missing = [column for column in GAME_STATE_REQUIRED_PLAY_BY_PLAY_COLUMNS if column not in df.columns]
+    diagnostics["missing_columns"] = missing
+    if missing:
+        diagnostics["errors"].append(f"Missing required columns: {missing}")
+
+    if df.empty:
+        diagnostics["errors"].append("Converted play-by-play has 0 rows.")
+
+    if "period" in df.columns:
+        diagnostics["has_period"] = pd.to_numeric(df["period"], errors="coerce").notna().any()
+    if "clock" in df.columns:
+        diagnostics["has_clock"] = df["clock"].fillna("").astype(str).str.strip().ne("").any()
+
+    if {"scoreHome", "scoreAway"}.issubset(df.columns):
+        score_home = pd.to_numeric(df["scoreHome"], errors="coerce").ffill()
+        score_away = pd.to_numeric(df["scoreAway"], errors="coerce").ffill()
+        diagnostics["score_columns_parseable_or_fillable"] = bool(score_home.notna().any() and score_away.notna().any())
+    else:
+        diagnostics["errors"].append("Missing scoreHome/scoreAway columns.")
+
+    diagnostics["is_valid"] = bool(
+        not missing
+        and not df.empty
+        and diagnostics["has_period"]
+        and diagnostics["has_clock"]
+        and diagnostics["score_columns_parseable_or_fillable"]
+    )
+    return diagnostics
 
 
 def _fetch_live_play_by_play_payload(game_id: str) -> dict[str, Any]:
@@ -472,6 +537,12 @@ def _cdn_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     return None
 
 
+def get_live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
+    """Return the best live score/status snapshot without fetching play-by-play."""
+
+    return _scoreboard_snapshot(_clean_game_id(game_id))
+
+
 def _live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     return _scoreboard_snapshot_from_games(
         game_id,
@@ -620,6 +691,47 @@ def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     return snapshot
 
 
+def get_live_debug_diagnostics(game_id: str) -> dict[str, Any]:
+    """Return live data diagnostics without running model inference."""
+
+    clean_id = _clean_game_id(game_id)
+    diagnostics: dict[str, Any] = {
+        "game_id": clean_id,
+        "cdn_scoreboard": {"ok": False},
+        "cdn_play_by_play": {"ok": False},
+    }
+
+    try:
+        scoreboard_snapshot = _cdn_scoreboard_snapshot(clean_id)
+        diagnostics["cdn_scoreboard"] = {
+            "ok": scoreboard_snapshot is not None,
+            "snapshot": scoreboard_snapshot or {},
+        }
+    except Exception as error:
+        diagnostics["cdn_scoreboard"] = {"ok": False, "error": str(error)}
+
+    try:
+        raw_pbp, converted, pbp_diagnostics = _fetch_cdn_live_play_by_play(clean_id)
+        validation = validate_live_play_by_play_dataframe(converted)
+        diagnostics["cdn_play_by_play"] = {
+            "ok": True,
+            "raw_status_code": pbp_diagnostics.get("raw_status_code"),
+            "action_count": len(_extract_live_actions(raw_pbp)),
+            "converted_shape": list(converted.shape),
+            "converted_columns": list(converted.columns),
+            "first_3_rows": converted.head(3).to_dict(orient="records"),
+            "last_3_rows": converted.tail(3).to_dict(orient="records"),
+            "required_columns": GAME_STATE_REQUIRED_PLAY_BY_PLAY_COLUMNS,
+            "required_columns_exist": not validation["missing_columns"],
+            "missing_columns": validation["missing_columns"],
+            "validation": validation,
+        }
+    except Exception as error:
+        diagnostics["cdn_play_by_play"] = {"ok": False, "error": str(error)}
+
+    return diagnostics
+
+
 def _paid_provider_placeholders(game_id: str) -> None:
     """Document future provider hooks without implementing paid calls.
 
@@ -690,6 +802,9 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
         live_play_by_play_rows = len(cdn_play_by_play)
         play_by_play_rows = live_play_by_play_rows
         if not cdn_play_by_play.empty:
+            validation = validate_live_play_by_play_dataframe(cdn_play_by_play)
+            if not validation["is_valid"]:
+                raise ValueError(f"Converted CDN play-by-play is invalid: {validation}")
             try:
                 scoreboard_snapshot = _cdn_scoreboard_snapshot(clean_id) or _scoreboard_snapshot(clean_id)
             except Exception:
