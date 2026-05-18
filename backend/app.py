@@ -13,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 
 from champion_inference import latest_prediction_payload, load_champion_metadata, predict_game_state
 from game_state import build_game_state
+from live_data_provider import get_live_game_snapshot, get_today_games
 from load_data import fetch_play_by_play
 
 
@@ -41,19 +42,104 @@ def load_or_fetch_game_state(game_id: str, force_fetch: bool = False) -> pd.Data
     return game_state
 
 
+def build_game_state_from_live_play_by_play(game_id: str, play_by_play: pd.DataFrame) -> pd.DataFrame:
+    game_id = str(game_id).zfill(10)
+    raw_path = RAW_DIR / f"play_by_play_{game_id}.csv"
+    game_state_path = PROCESSED_DIR / f"game_state_{game_id}.csv"
+
+    play_by_play.to_csv(raw_path, index=False)
+    game_state = build_game_state(raw_path)
+    game_state.to_csv(game_state_path, index=False)
+    return game_state
+
+
+def scoreboard_baseline_home_probability(snapshot: dict) -> float:
+    home_score = float(snapshot.get("home_score") or 0)
+    away_score = float(snapshot.get("away_score") or 0)
+    margin = home_score - away_score
+    status = str(snapshot.get("status") or "").lower()
+
+    if "final" in status:
+        if margin > 0:
+            return 1.0
+        if margin < 0:
+            return 0.0
+        return 0.5
+
+    period = int(snapshot.get("period") or 0)
+    leverage = 0.025
+    if period >= 4:
+        leverage = 0.04
+    elif period >= 2:
+        leverage = 0.03
+
+    probability = 0.5 + margin * leverage
+    return max(0.02, min(0.98, probability))
+
+
+def public_snapshot(snapshot: dict) -> dict:
+    return {key: value for key, value in snapshot.items() if not key.startswith("_")}
+
+
+def live_predict_payload(game_id: str) -> dict:
+    snapshot = get_live_game_snapshot(game_id)
+    champion = load_champion_metadata()
+
+    if snapshot.get("has_play_by_play") and isinstance(snapshot.get("_play_by_play_df"), pd.DataFrame):
+        game_state = build_game_state_from_live_play_by_play(game_id, snapshot["_play_by_play_df"])
+        predictions = predict_game_state(game_state)
+        payload = latest_prediction_payload(predictions)
+        payload.update(public_snapshot(snapshot))
+        payload["mode"] = "live"
+        payload["champion"] = champion
+        payload["prediction_source"] = "champion_model_live_play_by_play"
+        payload["model_name"] = payload.get("model_name") or champion.get("model_name", "Champion Model")
+        return payload
+
+    home_win_prob = scoreboard_baseline_home_probability(snapshot)
+    away_win_prob = 1.0 - home_win_prob
+    payload = public_snapshot(snapshot)
+    payload.update(
+        {
+            "mode": "live",
+            "champion": champion,
+            "prediction_source": "scoreboard_fallback_baseline",
+            "model_key": "scoreboard_fallback_baseline",
+            "model_name": "Scoreboard Fallback Baseline",
+            "home_win_prob": home_win_prob,
+            "away_win_prob": away_win_prob,
+            "home_win_prob_pct": round(home_win_prob * 100, 1),
+            "away_win_prob_pct": round(away_win_prob * 100, 1),
+        }
+    )
+    return payload
+
+
 def predict_payload(game_id: str, mode: str) -> dict:
-    force_fetch = mode == "live"
-    game_state = load_or_fetch_game_state(game_id, force_fetch=force_fetch)
+    if mode == "live":
+        return live_predict_payload(game_id)
+
+    game_state = load_or_fetch_game_state(game_id, force_fetch=False)
     predictions = predict_game_state(game_state)
     payload = latest_prediction_payload(predictions)
     payload["mode"] = mode
     payload["champion"] = load_champion_metadata()
+    payload["prediction_source"] = "champion_model_historical_game_state"
     return payload
 
 
 @app.get("/health")
 def health():
     return jsonify({"status": "ok", "service": "clutchcast-ai-backend"})
+
+
+@app.get("/games/today")
+def games_today():
+    try:
+        games = get_today_games()
+        return jsonify({"count": len(games), "games": games})
+    except Exception as error:
+        return jsonify({"error": str(error), "games": [], "count": 0}), 502
 
 
 @app.get("/predict/<game_id>")
