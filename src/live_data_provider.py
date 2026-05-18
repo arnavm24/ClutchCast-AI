@@ -19,6 +19,8 @@ from typing import Any
 
 import pandas as pd
 import requests
+from nba_api.live.nba.endpoints import boxscore as live_boxscore
+from nba_api.live.nba.endpoints import playbyplay as live_playbyplay
 from nba_api.live.nba.endpoints import scoreboard as live_scoreboard
 from nba_api.stats.endpoints import playbyplayv3, scoreboardv2
 
@@ -35,6 +37,28 @@ NBA_LIVE_SCOREBOARD_HEADERS = {
     "Referer": "https://www.nba.com/",
     "Origin": "https://www.nba.com",
 }
+LIVE_PLAY_BY_PLAY_COLUMNS = [
+    "gameId",
+    "actionNumber",
+    "clock",
+    "period",
+    "teamId",
+    "teamTricode",
+    "personId",
+    "playerName",
+    "scoreHome",
+    "scoreAway",
+    "description",
+    "actionType",
+    "subType",
+    "shotValue",
+    "isFieldGoal",
+    "shotResult",
+    "pointsTotal",
+    "location",
+    "videoAvailable",
+    "actionId",
+]
 
 
 def _clean_game_id(game_id: str) -> str:
@@ -97,7 +121,69 @@ def _latest_text(play_by_play: pd.DataFrame, column: str) -> str:
     return values.iloc[-1] if not values.empty else ""
 
 
-def _fetch_play_by_play(game_id: str) -> pd.DataFrame:
+def _extract_live_actions(raw_live_pbp: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(raw_live_pbp, dict):
+        return []
+    game = raw_live_pbp.get("game")
+    if isinstance(game, dict) and isinstance(game.get("actions"), list):
+        return [action for action in game["actions"] if isinstance(action, dict)]
+    actions = raw_live_pbp.get("actions")
+    if isinstance(actions, list):
+        return [action for action in actions if isinstance(action, dict)]
+    return []
+
+
+def live_play_by_play_to_dataframe(raw_live_pbp: dict[str, Any]) -> pd.DataFrame:
+    """Convert nba_api live play-by-play actions into game_state-compatible rows."""
+
+    game = raw_live_pbp.get("game", {}) if isinstance(raw_live_pbp, dict) else {}
+    if not isinstance(game, dict):
+        game = {}
+    game_id = _safe_str(game.get("gameId") or raw_live_pbp.get("gameId", ""))
+    rows = []
+    for action in _extract_live_actions(raw_live_pbp):
+        rows.append(
+            {
+                "gameId": _safe_str(action.get("gameId"), game_id),
+                "actionNumber": _safe_int(action.get("actionNumber") or action.get("actionId")),
+                "clock": _safe_str(action.get("clock")),
+                "period": _safe_int(action.get("period")),
+                "teamId": _safe_int(action.get("teamId")),
+                "teamTricode": _safe_str(action.get("teamTricode") or action.get("teamAbbreviation")),
+                "personId": _safe_int(action.get("personId")),
+                "playerName": _safe_str(action.get("playerName") or action.get("playerNameI")),
+                "scoreHome": action.get("scoreHome"),
+                "scoreAway": action.get("scoreAway"),
+                "description": _safe_str(action.get("description")),
+                "actionType": _safe_str(action.get("actionType")),
+                "subType": _safe_str(action.get("subType")),
+                "shotValue": _safe_int(action.get("shotValue")),
+                "isFieldGoal": _safe_int(action.get("isFieldGoal")),
+                "shotResult": _safe_str(action.get("shotResult")),
+                "pointsTotal": _safe_int(action.get("pointsTotal")),
+                "location": _safe_str(action.get("location")),
+                "videoAvailable": _safe_int(action.get("videoAvailable")),
+                "actionId": _safe_int(action.get("actionId") or action.get("actionNumber")),
+            }
+        )
+
+    return pd.DataFrame(rows, columns=LIVE_PLAY_BY_PLAY_COLUMNS)
+
+
+def _fetch_live_play_by_play_payload(game_id: str) -> dict[str, Any]:
+    try:
+        response = live_playbyplay.PlayByPlay(game_id=game_id, timeout=10)
+    except TypeError:
+        response = live_playbyplay.PlayByPlay(game_id=game_id)
+    return response.get_dict()
+
+
+def _fetch_live_play_by_play(game_id: str) -> tuple[dict[str, Any], pd.DataFrame]:
+    payload = _fetch_live_play_by_play_payload(game_id)
+    return payload, live_play_by_play_to_dataframe(payload)
+
+
+def _fetch_stats_play_by_play(game_id: str) -> pd.DataFrame:
     response = playbyplayv3.PlayByPlayV3(game_id=game_id, timeout=10)
     frames = response.get_data_frames()
     if not frames:
@@ -352,6 +438,52 @@ def _live_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     )
 
 
+def _fetch_live_boxscore_payload(game_id: str) -> dict[str, Any]:
+    try:
+        response = live_boxscore.BoxScore(game_id=game_id, timeout=10)
+    except TypeError:
+        response = live_boxscore.BoxScore(game_id=game_id)
+    return response.get_dict()
+
+
+def _live_boxscore_snapshot(game_id: str) -> dict[str, Any] | None:
+    payload = _fetch_live_boxscore_payload(game_id)
+    game = payload.get("game", payload) if isinstance(payload, dict) else {}
+    if not isinstance(game, dict):
+        return None
+    home = game.get("homeTeam") or {}
+    away = game.get("awayTeam") or {}
+    if not home and not away:
+        return None
+
+    status = _safe_str(game.get("gameStatusText"), "Live boxscore available")
+    clock = _safe_str(game.get("gameClock"), status)
+    game_state = _safe_str(game.get("gameState")) or _safe_str(game.get("gameStatus"))
+    return {
+        "game_id": game_id,
+        "status": status,
+        "game_status": game_state,
+        "game_state": game_state,
+        "period": _safe_int(game.get("period")),
+        "clock": clock,
+        "game_clock": clock,
+        "home_score": _safe_int(home.get("score")),
+        "away_score": _safe_int(away.get("score")),
+        "home_team": _live_team_abbreviation(home, "Home"),
+        "away_team": _live_team_abbreviation(away, "Away"),
+        "home_team_name": _live_team_name(home, "Home"),
+        "away_team_name": _live_team_name(away, "Away"),
+        "home_team_id": _safe_int(home.get("teamId")),
+        "away_team_id": _safe_int(away.get("teamId")),
+        "last_play": status,
+        "data_source": "nba_api_live_boxscore",
+        "has_play_by_play": False,
+        "matched_by": "gameId",
+        "raw_id_used": _safe_str(game.get("gameId"), game_id),
+        "warning": "",
+    }
+
+
 def _stats_scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     games, line_score = _fetch_scoreboard_frames()
     if games.empty or "GAME_ID" not in games.columns:
@@ -423,12 +555,26 @@ def _scoreboard_snapshot(game_id: str) -> dict[str, Any] | None:
     except Exception as error:
         live_error = str(error)
 
+    boxscore_error = ""
+    try:
+        snapshot = _live_boxscore_snapshot(game_id)
+        if snapshot is not None:
+            if cdn_error:
+                snapshot["cdn_scoreboard_error"] = cdn_error
+            if live_error:
+                snapshot["live_scoreboard_error"] = live_error
+            return snapshot
+    except Exception as error:
+        boxscore_error = str(error)
+
     snapshot = _stats_scoreboard_snapshot(game_id)
     if snapshot is not None:
         if cdn_error:
             snapshot["cdn_scoreboard_error"] = cdn_error
         if live_error:
             snapshot["live_scoreboard_error"] = live_error
+        if boxscore_error:
+            snapshot["live_boxscore_error"] = boxscore_error
     return snapshot
 
 
@@ -445,52 +591,90 @@ def _paid_provider_placeholders(game_id: str) -> None:
     return None
 
 
+def _snapshot_from_play_by_play(
+    game_id: str,
+    play_by_play: pd.DataFrame,
+    data_source: str,
+    scoreboard_snapshot: dict[str, Any] | None = None,
+    live_play_by_play_rows: int = 0,
+) -> dict[str, Any]:
+    latest = play_by_play.iloc[-1]
+    snapshot = dict(scoreboard_snapshot or {})
+    snapshot.update(
+        {
+            "game_id": game_id,
+            "status": snapshot.get("status") or "Play-by-play available",
+            "period": _safe_int(latest.get("period"), _safe_int(snapshot.get("period"))),
+            "clock": _safe_str(latest.get("clock"), _safe_str(snapshot.get("clock"))),
+            "home_score": _latest_score(play_by_play, "scoreHome") or _safe_int(snapshot.get("home_score")),
+            "away_score": _latest_score(play_by_play, "scoreAway") or _safe_int(snapshot.get("away_score")),
+            "home_team": _safe_str(snapshot.get("home_team"), "Home"),
+            "away_team": _safe_str(snapshot.get("away_team"), "Away"),
+            "last_play": _latest_text(play_by_play, "description") or _safe_str(snapshot.get("last_play")),
+            "data_source": data_source,
+            "has_play_by_play": True,
+            "play_by_play_rows": len(play_by_play),
+            "live_play_by_play_rows": live_play_by_play_rows,
+            "fallback_reason": "",
+            "warning": "",
+            "_play_by_play_df": play_by_play,
+        }
+    )
+    return snapshot
+
+
 def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
     """Return the best available live snapshot for an NBA game.
 
     Priority:
-    1. nba_api play-by-play, when rows are available.
-    2. nba_api live scoreboard fallback.
-    3. nba_api stats scoreboardv2 fallback.
-    4. Clean empty fallback payload.
+    1. nba_api live play-by-play actions, when rows are available.
+    2. nba_api stats PlayByPlayV3, when rows are available.
+    3. NBA live scoreboard / boxscore fallback.
+    4. nba_api stats scoreboardv2 fallback.
+    5. Clean empty fallback payload.
     """
 
     clean_id = _clean_game_id(game_id)
-    play_by_play_error: str | None = None
+    play_by_play_errors: list[str] = []
     play_by_play_rows = 0
+    live_play_by_play_rows = 0
 
     try:
-        play_by_play = _fetch_play_by_play(clean_id)
-        play_by_play_rows = len(play_by_play)
-        if not play_by_play.empty:
-            latest = play_by_play.iloc[-1]
+        raw_live_pbp, live_play_by_play = _fetch_live_play_by_play(clean_id)
+        live_play_by_play_rows = len(live_play_by_play)
+        play_by_play_rows = live_play_by_play_rows
+        if not live_play_by_play.empty:
             try:
                 scoreboard_snapshot = _scoreboard_snapshot(clean_id)
             except Exception:
                 scoreboard_snapshot = None
-            snapshot = dict(scoreboard_snapshot or {})
-            snapshot.update(
-                {
-                    "game_id": clean_id,
-                    "status": snapshot.get("status") or "Play-by-play available",
-                    "period": _safe_int(latest.get("period"), _safe_int(snapshot.get("period"))),
-                    "clock": _safe_str(latest.get("clock"), _safe_str(snapshot.get("clock"))),
-                    "home_score": _latest_score(play_by_play, "scoreHome") or _safe_int(snapshot.get("home_score")),
-                    "away_score": _latest_score(play_by_play, "scoreAway") or _safe_int(snapshot.get("away_score")),
-                    "home_team": _safe_str(snapshot.get("home_team"), "Home"),
-                    "away_team": _safe_str(snapshot.get("away_team"), "Away"),
-                    "last_play": _latest_text(play_by_play, "description") or _safe_str(snapshot.get("last_play")),
-                    "data_source": "nba_api_play_by_play",
-                    "has_play_by_play": True,
-                    "play_by_play_rows": play_by_play_rows,
-                    "fallback_reason": "",
-                    "warning": "",
-                    "_play_by_play_df": play_by_play,
-                }
+            return _snapshot_from_play_by_play(
+                clean_id,
+                live_play_by_play,
+                "nba_api_live_play_by_play",
+                scoreboard_snapshot,
+                live_play_by_play_rows=live_play_by_play_rows,
             )
-            return snapshot
     except Exception as error:
-        play_by_play_error = str(error)
+        play_by_play_errors.append(f"live PlayByPlay failed: {error}")
+
+    try:
+        stats_play_by_play = _fetch_stats_play_by_play(clean_id)
+        play_by_play_rows = max(play_by_play_rows, len(stats_play_by_play))
+        if not stats_play_by_play.empty:
+            try:
+                scoreboard_snapshot = _scoreboard_snapshot(clean_id)
+            except Exception:
+                scoreboard_snapshot = None
+            return _snapshot_from_play_by_play(
+                clean_id,
+                stats_play_by_play,
+                "nba_api_stats_play_by_playv3",
+                scoreboard_snapshot,
+                live_play_by_play_rows=live_play_by_play_rows,
+            )
+    except Exception as error:
+        play_by_play_errors.append(f"stats PlayByPlayV3 failed: {error}")
 
     try:
         scoreboard_snapshot = _scoreboard_snapshot(clean_id)
@@ -498,15 +682,16 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
         scoreboard_snapshot = None
 
     if scoreboard_snapshot is not None:
-        if play_by_play_error:
-            scoreboard_snapshot["play_by_play_error"] = play_by_play_error
-            scoreboard_snapshot["fallback_reason"] = f"PlayByPlayV3 failed: {play_by_play_error}. Using scoreboard fallback."
+        if play_by_play_errors:
+            scoreboard_snapshot["play_by_play_error"] = " | ".join(play_by_play_errors)
+            scoreboard_snapshot["fallback_reason"] = "play_by_play_unavailable_using_live_fallback"
         else:
             if scoreboard_snapshot.get("data_source") == "nba_live_cdn_scoreboard":
                 scoreboard_snapshot["fallback_reason"] = "play_by_play_empty_using_live_scoreboard"
             else:
-                scoreboard_snapshot["fallback_reason"] = "PlayByPlayV3 returned 0 rows. Using scoreboard fallback."
+                scoreboard_snapshot["fallback_reason"] = "Live and stats play-by-play returned 0 rows. Using scoreboard fallback."
         scoreboard_snapshot["play_by_play_rows"] = play_by_play_rows
+        scoreboard_snapshot["live_play_by_play_rows"] = live_play_by_play_rows
         scoreboard_snapshot.setdefault("warning", "Full champion model could not run because live play-by-play is unavailable.")
         return scoreboard_snapshot
 
@@ -524,6 +709,7 @@ def get_live_game_snapshot(game_id: str) -> dict[str, Any]:
         "data_source": "fallback_empty",
         "has_play_by_play": False,
         "play_by_play_rows": play_by_play_rows,
+        "live_play_by_play_rows": live_play_by_play_rows,
         "fallback_reason": "No live play-by-play or scoreboard match was available.",
         "matched_by": "",
         "raw_id_used": clean_id,

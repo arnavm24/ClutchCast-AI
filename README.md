@@ -146,17 +146,19 @@ The Live Game tab displays the current period, clock, score, home/away win proba
 
 Live data fallback order:
 
-1. `PlayByPlayV3` rows, which enable full Champion Model inference.
-2. Direct NBA CDN live scoreboard JSON at `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`.
-3. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, which wraps the same NBA live scoreboard feed.
-4. `ScoreboardV2`, only as a last free-data fallback.
+1. `nba_api.live.nba.endpoints.playbyplay.PlayByPlay`, which enables full Champion Model inference when live actions are available.
+2. Stats `PlayByPlayV3`, useful for completed or historical-style play-by-play.
+3. Direct NBA CDN live scoreboard JSON at `https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`.
+4. `nba_api.live.nba.endpoints.scoreboard.ScoreBoard`, which wraps the same NBA live scoreboard feed.
+5. `nba_api.live.nba.endpoints.boxscore.BoxScore`, as score/status support when live scoreboard is broken.
+6. `ScoreboardV2`, only as a last free-data fallback.
 
 If the CDN/debug output says `NBA live scoreboard endpoint is not returning JSON from this environment`, or if all free endpoints return stale scheduled data, reliable production live tracking requires a dedicated live sports data provider.
 
 Live debugging:
 
 ```powershell
-python src/debug_live_scoreboard.py
+python src/debug_live_scoreboard.py GAME_ID
 curl.exe http://127.0.0.1:5000/games/today
 curl.exe "http://127.0.0.1:5000/predict/GAME_ID?mode=live"
 ```

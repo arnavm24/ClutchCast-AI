@@ -95,6 +95,7 @@ def live_predict_payload(game_id: str) -> dict:
         payload["prediction_source"] = "champion_model_live_play_by_play"
         payload["model_name"] = payload.get("model_name") or champion.get("model_name", "Champion Model")
         payload["play_by_play_rows"] = int(snapshot.get("play_by_play_rows") or len(snapshot["_play_by_play_df"]))
+        payload["live_play_by_play_rows"] = int(snapshot.get("live_play_by_play_rows") or 0)
         payload["fallback_reason"] = ""
         payload["warning"] = ""
         return payload
@@ -114,6 +115,7 @@ def live_predict_payload(game_id: str) -> dict:
             "home_win_prob_pct": round(home_win_prob * 100, 1),
             "away_win_prob_pct": round(away_win_prob * 100, 1),
             "play_by_play_rows": int(snapshot.get("play_by_play_rows") or 0),
+            "live_play_by_play_rows": int(snapshot.get("live_play_by_play_rows") or 0),
             "fallback_reason": snapshot.get("fallback_reason") or "Live play-by-play is unavailable; using scoreboard fallback.",
             "warning": snapshot.get("warning") or "Full champion model could not run because live play-by-play is unavailable.",
         }

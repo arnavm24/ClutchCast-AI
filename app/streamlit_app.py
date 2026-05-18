@@ -802,7 +802,7 @@ def show_live_prediction(payload: dict, health: dict | None, champion_label: str
     cards = [
         render_metric_card("Last Play", short_text(payload.get("last_play", "No play available"), 42), short_text(payload.get("last_play", "No play available"), 160)),
         render_metric_card("Data Source", data_source.replace("_", " ").title(), f"Matched by: {payload.get('matched_by', 'unknown')}"),
-        render_metric_card("Play-by-Play", "Available" if has_play_by_play else "Unavailable", f"Rows: {payload.get('play_by_play_rows', 0)}"),
+        render_metric_card("Play-by-Play", "Available" if has_play_by_play else "Unavailable", f"Rows: {payload.get('play_by_play_rows', 0)} · Live rows: {payload.get('live_play_by_play_rows', 0)}"),
         render_metric_card("Prediction Source", str(model_name), prediction_source.replace("_", " ").title()),
     ]
     render_html('<div class="metric-grid">' + "".join(cards) + '</div>')

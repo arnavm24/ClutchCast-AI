@@ -15,6 +15,7 @@ from datetime import date
 from pprint import pprint
 
 import requests
+from nba_api.live.nba.endpoints import playbyplay as live_playbyplay
 from nba_api.live.nba.endpoints import scoreboard as live_scoreboard
 from nba_api.stats.endpoints import scoreboardv2
 
@@ -169,10 +170,76 @@ def print_stats_scoreboard() -> None:
         print(f"ScoreboardV2 error: {type(error).__name__}: {error}")
 
 
+def action_to_compatible_row(action: dict, game_id: str) -> dict:
+    return {
+        "gameId": action.get("gameId", game_id),
+        "actionNumber": action.get("actionNumber") or action.get("actionId"),
+        "clock": action.get("clock"),
+        "period": action.get("period"),
+        "teamId": action.get("teamId"),
+        "teamTricode": action.get("teamTricode") or action.get("teamAbbreviation"),
+        "personId": action.get("personId"),
+        "playerName": action.get("playerName") or action.get("playerNameI"),
+        "scoreHome": action.get("scoreHome"),
+        "scoreAway": action.get("scoreAway"),
+        "description": action.get("description"),
+        "actionType": action.get("actionType"),
+        "subType": action.get("subType"),
+        "shotValue": action.get("shotValue"),
+        "isFieldGoal": action.get("isFieldGoal"),
+        "shotResult": action.get("shotResult"),
+        "pointsTotal": action.get("pointsTotal"),
+        "location": action.get("location"),
+        "videoAvailable": action.get("videoAvailable"),
+        "actionId": action.get("actionId"),
+    }
+
+
+def print_live_play_by_play(game_id: str | None = None) -> None:
+    print_section("NBA Live PlayByPlay")
+    if not game_id:
+        print("No GAME_ID supplied. To inspect live actions, run: python src/debug_live_scoreboard.py GAME_ID")
+        return
+
+    try:
+        try:
+            response = live_playbyplay.PlayByPlay(game_id=game_id, timeout=10)
+        except TypeError:
+            response = live_playbyplay.PlayByPlay(game_id=game_id)
+        payload = response.get_dict()
+        print(f"top-level type: {type(payload).__name__}")
+        if isinstance(payload, dict):
+            print(f"top-level keys: {list(payload.keys())}")
+        game = payload.get("game", payload) if isinstance(payload, dict) else {}
+        actions = game.get("actions", []) if isinstance(game, dict) else []
+        print(f"number of actions/events: {len(actions) if isinstance(actions, list) else 0}")
+        if isinstance(actions, list) and actions:
+            first = actions[0]
+            last = actions[-1]
+            print(f"first action keys: {list(first.keys()) if isinstance(first, dict) else 'not a dict'}")
+            print(f"last action keys: {list(last.keys()) if isinstance(last, dict) else 'not a dict'}")
+            print("first action JSON:")
+            print(json.dumps(first, indent=2, sort_keys=True))
+            print("last action JSON:")
+            print(json.dumps(last, indent=2, sort_keys=True))
+            print("compatible first-row preview:")
+            pprint(action_to_compatible_row(first, game_id))
+            print("compatible last-row preview:")
+            pprint(action_to_compatible_row(last, game_id))
+        else:
+            print("No live actions returned.")
+    except Exception as error:
+        print(f"Live PlayByPlay error: {type(error).__name__}: {error}")
+
+
 def main() -> None:
+    import sys
+
+    game_id = sys.argv[1] if len(sys.argv) > 1 else None
     print_direct_cdn_request("Direct NBA CDN Live Scoreboard - No Custom Headers")
     print_direct_cdn_request("Direct NBA CDN Live Scoreboard - Browser Headers", NBA_LIVE_SCOREBOARD_HEADERS)
     print_live_scoreboard()
+    print_live_play_by_play(game_id)
     print_stats_scoreboard()
 
 
