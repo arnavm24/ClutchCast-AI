@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { currentFeatureRecord, LiveEvent } from "@/lib/features";
 import { ModelBundle, featureVector, predictHomeWinProbability } from "@/lib/model";
-import { SCOREBOARD_URL, currentSeason, playByPlayUrl } from "@/lib/nba";
+import { NBA_FETCH_HEADERS, SCOREBOARD_URL, currentSeason, playByPlayUrl } from "@/lib/nba";
 
 export const revalidate = 0;
 
@@ -31,8 +31,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const gameId = id.padStart(10, "0");
   try {
     const [pbpResponse, sbResponse] = await Promise.all([
-      fetch(playByPlayUrl(gameId), { cache: "no-store" }),
-      fetch(SCOREBOARD_URL, { cache: "no-store" }),
+      fetch(playByPlayUrl(gameId), { cache: "no-store", headers: NBA_FETCH_HEADERS }),
+      fetch(SCOREBOARD_URL, { cache: "no-store", headers: NBA_FETCH_HEADERS }),
     ]);
 
     if (!sbResponse.ok) {

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { SCOREBOARD_URL, TodayGame } from "@/lib/nba";
+import { NBA_FETCH_HEADERS, SCOREBOARD_URL, TodayGame } from "@/lib/nba";
 
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    const response = await fetch(SCOREBOARD_URL, { cache: "no-store" });
+    const response = await fetch(SCOREBOARD_URL, { cache: "no-store", headers: NBA_FETCH_HEADERS });
     if (!response.ok) {
       return NextResponse.json({ games: [], error: `NBA scoreboard returned ${response.status}` }, { status: 200 });
     }

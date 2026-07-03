@@ -3,6 +3,15 @@
 
 export const SCOREBOARD_URL = "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json";
 
+// The NBA CDN rejects bare datacenter requests; browser-like headers get through.
+export const NBA_FETCH_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  Accept: "application/json,text/plain,*/*",
+  Referer: "https://www.nba.com/",
+  Origin: "https://www.nba.com",
+};
+
 export const playByPlayUrl = (gameId: string) =>
   `https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_${gameId}.json`;
 
