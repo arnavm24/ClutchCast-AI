@@ -6,7 +6,9 @@
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { teamColor } from "@/lib/nba";
+import { currentFeatureRecord, LiveEvent } from "@/lib/features";
+import { featureVector, ModelBundle, predictHomeWinProbability } from "@/lib/model";
+import { currentSeason, playByPlayUrl, SCOREBOARD_URL, teamColor } from "@/lib/nba";
 import TeamMark from "./TeamMark";
 
 interface LivePayload {
@@ -31,6 +33,60 @@ interface HistoryPoint {
   label: string;
 }
 
+// Client-side inference: the champion model weights load once and every win
+// probability on this page is computed in the visitor's browser.
+async function computeLiveDirect(gameId: string, bundleRef: { current: ModelBundle | null }): Promise<LivePayload | null> {
+  const [sbResponse, pbpResponse] = await Promise.all([
+    fetch(SCOREBOARD_URL, { cache: "no-store" }),
+    fetch(playByPlayUrl(gameId), { cache: "no-store" }).catch(() => null),
+  ]);
+  if (!sbResponse.ok) return null;
+  const scoreboard = await sbResponse.json();
+  const game = (scoreboard?.scoreboard?.games ?? []).find((g: { gameId: string }) => String(g.gameId) === gameId);
+  if (!game) return { error: "Game not on today's scoreboard", source: "unavailable" } as LivePayload;
+
+  const base = {
+    gameId,
+    home: String(game.homeTeam?.teamTricode ?? ""),
+    away: String(game.awayTeam?.teamTricode ?? ""),
+    homeScore: Number(game.homeTeam?.score ?? 0),
+    awayScore: Number(game.awayTeam?.score ?? 0),
+    period: Number(game.period ?? 0),
+    clock: String(game.gameClock ?? ""),
+    status: String(game.gameStatusText ?? ""),
+    gameStatus: Number(game.gameStatus ?? 1),
+  };
+
+  if (!pbpResponse || !pbpResponse.ok) {
+    const margin = base.homeScore - base.awayScore;
+    const leverage = base.period >= 4 ? 0.04 : base.period >= 2 ? 0.03 : 0.025;
+    const prob = base.gameStatus === 3 ? (margin > 0 ? 1 : margin < 0 ? 0 : 0.5) : Math.max(0.02, Math.min(0.98, 0.5 + margin * leverage));
+    return { ...base, homeWinProb: prob, source: "scoreboard_fallback", lastPlay: "" };
+  }
+
+  const payload = await pbpResponse.json();
+  const actions = payload?.game?.actions ?? [];
+  if (actions.length === 0) return { ...base, homeWinProb: 0.5, source: "pregame", lastPlay: "" };
+
+  if (!bundleRef.current) {
+    bundleRef.current = (await fetch("/data/model.json").then((r) => r.json())) as ModelBundle;
+  }
+  const bundle = bundleRef.current;
+  const events: LiveEvent[] = actions.map((a: Record<string, unknown>) => ({
+    period: Number(a.period ?? 1),
+    clock: String(a.clock ?? "PT12M00.00S"),
+    teamTricode: String(a.teamTricode ?? ""),
+    description: String(a.description ?? ""),
+    actionType: String(a.actionType ?? ""),
+    scoreHome: (a.scoreHome as string) ?? null,
+    scoreAway: (a.scoreAway as string) ?? null,
+  }));
+  const record = currentFeatureRecord(events, { homeTricode: base.home, awayTricode: base.away, season: currentSeason() }, bundle.teamStrength);
+  let prob = predictHomeWinProbability(bundle, featureVector(bundle, record));
+  if (base.gameStatus === 3) prob = base.homeScore > base.awayScore ? 1 : base.homeScore < base.awayScore ? 0 : 0.5;
+  return { ...base, homeWinProb: prob, source: "champion_model_live", model: `${bundle.championName} · in your browser`, lastPlay: String(events[events.length - 1].description) };
+}
+
 const SOURCE_BADGES: Record<string, { label: string; className: string }> = {
   champion_model_live: { label: "Full champion model · live play-by-play", className: "border-emerald-400/40 bg-emerald-500/10 text-emerald-300" },
   scoreboard_fallback: { label: "Scoreboard fallback · simple baseline", className: "border-amber-400/40 bg-amber-500/10 text-amber-300" },
@@ -48,12 +104,22 @@ export default function LiveGame({ gameId }: { gameId: string }) {
   const historyRef = useRef<HistoryPoint[]>([]);
   const [, force] = useState(0);
 
+  const bundleRef = useRef<ModelBundle | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const response = await fetch(`/api/live/${gameId}`);
-        const payload: LivePayload = await response.json();
+        let payload: LivePayload | null = null;
+        try {
+          payload = await computeLiveDirect(gameId.padStart(10, "0"), bundleRef);
+        } catch {
+          payload = null;
+        }
+        if (payload === null) {
+          const response = await fetch(`/api/live/${gameId}`);
+          payload = (await response.json()) as LivePayload;
+        }
         if (cancelled) return;
         setData(payload);
         if (payload.homeWinProb != null && !payload.error) {

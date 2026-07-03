@@ -11,15 +11,38 @@ export default function TodayGames() {
 
   useEffect(() => {
     let cancelled = false;
-    const load = () =>
-      fetch("/api/today")
-        .then((r) => r.json())
-        .then((d) => {
-          if (!cancelled) setGames(d.games ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setGames([]);
-        });
+    const load = async () => {
+      // NBA's CDN blocks datacenter IPs but allows browsers (CORS *), so we
+      // fetch directly from the visitor first and use our proxy as fallback.
+      let next: TodayGame[] | null = null;
+      try {
+        const direct = await fetch("https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json", { cache: "no-store" });
+        if (direct.ok) {
+          const payload = await direct.json();
+          next = (payload?.scoreboard?.games ?? []).map((g: Record<string, never>) => ({
+            gameId: String(g["gameId"]),
+            gameStatus: Number(g["gameStatus"]),
+            gameStatusText: String(g["gameStatusText"] ?? ""),
+            period: Number(g["period"] ?? 0),
+            gameClock: String(g["gameClock"] ?? ""),
+            gameTimeUTC: String(g["gameTimeUTC"] ?? ""),
+            homeTeam: { teamId: Number((g["homeTeam"] as Record<string, unknown>)?.teamId), teamTricode: String((g["homeTeam"] as Record<string, unknown>)?.teamTricode ?? ""), score: Number((g["homeTeam"] as Record<string, unknown>)?.score ?? 0) },
+            awayTeam: { teamId: Number((g["awayTeam"] as Record<string, unknown>)?.teamId), teamTricode: String((g["awayTeam"] as Record<string, unknown>)?.teamTricode ?? ""), score: Number((g["awayTeam"] as Record<string, unknown>)?.score ?? 0) },
+          }));
+        }
+      } catch {
+        // fall through to proxy
+      }
+      if (next === null) {
+        try {
+          const proxied = await fetch("/api/today").then((r) => r.json());
+          next = proxied.error ? [] : (proxied.games ?? []);
+        } catch {
+          next = [];
+        }
+      }
+      if (!cancelled) setGames(next);
+    };
     load();
     const interval = setInterval(load, 30_000);
     return () => {
@@ -48,6 +71,8 @@ export default function TodayGames() {
       {games.map((game, index) => {
         const live = game.gameStatus === 2;
         const final = game.gameStatus === 3;
+        // ESPN-sourced ids can't drive the live model page — display only.
+        const linkable = /^\d{10}$/.test(game.gameId) && (live || final);
         return (
           <motion.div
             key={game.gameId}
@@ -55,7 +80,7 @@ export default function TodayGames() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.06 }}
           >
-            <Link href={live || final ? `/live/${game.gameId}` : "#"} className={live || final ? "" : "pointer-events-none"}>
+            <Link href={linkable ? `/live/${game.gameId}` : "#"} className={linkable ? "" : "pointer-events-none"}>
               <div className="panel panel-hover px-5 py-4">
                 <div className="mb-3 flex items-center justify-between text-[11px] font-bold uppercase tracking-widest">
                   {live ? (
@@ -65,7 +90,7 @@ export default function TodayGames() {
                   ) : (
                     <span className="text-muted">{game.gameStatusText}</span>
                   )}
-                  {(live || final) && <span className="text-muted">tap for win prob →</span>}
+                  {linkable && <span className="text-muted">tap for win prob →</span>}
                 </div>
                 {[game.awayTeam, game.homeTeam].map((team) => (
                   <div key={team.teamTricode} className="flex items-center gap-3 py-1">
