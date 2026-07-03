@@ -22,12 +22,20 @@ Most sports prediction demos stop at a cool chart. ClutchCast AI is designed to 
 
 ## Modeling Approach
 
-ClutchCast AI compares four approaches:
+ClutchCast AI compares six approaches:
 
 1. Baseline rule model: interpretable formula based on score margin, time, and home-court edge.
 2. Logistic regression: scaled, interpretable ML benchmark.
 3. Random forest: nonlinear tabular model with feature importance.
-4. PyTorch neural network: simple tabular MLP with validation early stopping.
+4. Gradient boosting: sklearn `HistGradientBoostingClassifier` (LightGBM-class trees).
+5. PyTorch neural network: simple tabular MLP with validation early stopping.
+6. GRU sequence model: reads the trailing 24 events as a time-series instead of hand-rolled rolling aggregates.
+
+Training data covers the 2022-23 and 2023-24 regular seasons (600 games, ~288k game states, 480 train / 120 held-out test games). Pregame team-strength priors come from each team's previous-season win percentage (`src/team_strength.py`) — prior-season results cannot leak information about the games being predicted.
+
+An isotonic calibration layer (`src/calibrate_champion.py`) is fitted on validation games carved from the train split and is applied at inference only if it improves held-out probability quality. On the current champion it does not (the champion is already well calibrated), so it is intentionally not applied — the before/after evidence lives in `reports/champion_calibration_effect.csv`.
+
+Current held-out results (120 test games): the champion PyTorch NN scores Brier 0.1577 / log loss 0.4618 / ROC-AUC 0.853, with the GRU sequence model a near-tie at 0.1579. Gradient boosting posts the highest accuracy (74.4%) but the worst Brier — a concrete example of why the champion is selected on probability quality, not accuracy.
 
 All ML models use:
 
@@ -68,19 +76,22 @@ No raw text columns, identifiers, final result leakage, or future score changes 
 
 ## Dashboard Features
 
-The Streamlit dashboard includes:
+The Streamlit dashboard (now a modular `app/ui/` package) includes:
 
-- Game Overview with hero scoreboard, team win probabilities, model status, and top intelligence cards
-- Champion Win Probability Timeline
-- Live Game tab that polls the Flask backend for live score/probability updates
+- Game Overview with hero scoreboard, team win probabilities, model status, top intelligence cards, and a compact "Why This Probability?" card
+- Champion Win Probability Timeline with a moment slider — scrub to any play and see the game state and top probability drivers at that moment
+- What-If Simulator: set a hypothetical margin/quarter/clock and the champion model re-scores the state live
+- Live Game Center: prominent data-quality banner (Full Champion Model / Historical / Scoreboard Fallback / Artifacts Missing / Replay), live win-probability timeline that persists across refreshes, last-5-plays feed, scoring-run detection, largest live swing, and momentum badge
+- Replay mode: stream any analyzed game through the live pipeline offline — demos the Live Game Center without a live NBA game
 - Game Insights: drama score, most valuable play, most damaging play, and clutch-time scoring
-- Turning Points
-- Player Impact
+- Turning Points and Player Impact
+- Player Matchup: side-by-side player cards with NBA headshots (initials fallback when offline), total/net/clutch impact, helped-vs-hurt split, top play, and a dual-player impact timeline
 - Clutch Pressure and Comeback Reality
 - Game Recap
-- Model Evaluation with leaderboard, Brier score, log loss, ROC-AUC, accuracy, final model probabilities, and disagreement moments
+- Model Evaluation with leaderboard plus a full calibration report: reliability diagram, expected calibration error, Brier by quarter, and overconfidence flags — the champion is selected by probability quality, not model complexity
+- Sidebar: curated demo games (close finish, OT thriller, comeback, blowout, highest drama), game search (team / close games / overtime filters), and a Most Dramatic Games leaderboard
 
-Historical tabs use saved CSV/report files. The Live Game tab polls the backend endpoint `GET /predict/<game_id>?mode=live`.
+Historical tabs use saved CSV/report files. The Live Game tab polls the backend endpoint `GET /predict/<game_id>?mode=live`; the `prediction_source` field drives the data-quality banner.
 
 ## Local Setup
 
@@ -93,23 +104,50 @@ pip install -r requirements.txt
 ## Rebuild Dataset And Features
 
 ```powershell
-python src/build_training_dataset.py --season 2023-24 --season-type "Regular Season" --max-games 300
+python src/build_training_dataset.py --seasons 2022-23 2023-24 --max-games 300
+python src/team_strength.py --apply-to-seasons 2022-23 2023-24
 python src/model_features.py
 ```
+
+`--max-games` applies per season. Raw files already on disk are reused, so reruns only download what is missing.
 
 ## Train Models
 
 ```powershell
+python src/team_strength.py --apply-to-seasons 2022-23 2023-24
 python src/train_model.py
 python src/train_advanced_model.py
+python src/train_gradient_boosting.py
 python src/train_neural_network.py
+python src/train_sequence_model.py
 ```
 
 ## Select Champion Model
 
 ```powershell
 python src/compare_models.py --leaderboard
+python src/calibrate_champion.py
 ```
+
+## Calibration Report
+
+Evaluates every model (plus the live scoreboard fallback) on held-out test games: reliability bins, expected calibration error, Brier by quarter, and overconfidence flags. Shares the exact prediction code path with the leaderboard via `src/model_predictions.py`.
+
+```powershell
+python src/calibration_report.py
+```
+
+## Batch Analysis, Game Index, And Demo Games
+
+Analyze many games offline from `data/raw` (no network), build the searchable game index, and pick curated demo games for the sidebar:
+
+```powershell
+python src/game_index.py
+python src/batch_analyze.py --test-games --limit 20 --skip-existing
+python src/demo_games.py
+```
+
+`batch_analyze.py` also accepts `--game-ids id1 id2 ...` and `--from-file path`.
 
 ## Analyze A Past Game
 
@@ -221,12 +259,20 @@ Do not commit datasets, trained models, prediction CSVs, or leaderboard/report o
 ## Final Command Checklist
 
 ```powershell
-python src/build_training_dataset.py --season 2023-24 --season-type "Regular Season" --max-games 300
+python src/build_training_dataset.py --seasons 2022-23 2023-24 --max-games 300
+python src/team_strength.py --apply-to-seasons 2022-23 2023-24
 python src/model_features.py
 python src/train_model.py
 python src/train_advanced_model.py
+python src/train_gradient_boosting.py
 python src/train_neural_network.py
+python src/train_sequence_model.py
 python src/compare_models.py --leaderboard
+python src/calibrate_champion.py
+python src/calibration_report.py
+python src/game_index.py
+python src/batch_analyze.py --test-games --limit 20 --skip-existing
+python src/demo_games.py
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model baseline
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model ml
 python src/run_pipeline.py --game-id YOUR_GAME_ID --model advanced

@@ -309,30 +309,56 @@ def add_possession_features(df: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
-def load_team_strengths() -> dict[str, float]:
+def season_from_game_id(game_id: str) -> str:
+    digits = str(game_id).zfill(10)
+    try:
+        start_year = 2000 + int(digits[3:5])
+    except ValueError:
+        return ""
+    return f"{start_year}-{str(start_year + 1)[-2:]}"
+
+
+def load_team_strengths() -> tuple[dict[tuple[str, str], float], dict[str, float]]:
+    """Returns (per-season strengths keyed by (team, season), team-only fallback)."""
     if not TEAM_STRENGTH_PATH.exists():
-        return {}
+        return {}, {}
 
     strengths = pd.read_csv(TEAM_STRENGTH_PATH)
     team_column = "team" if "team" in strengths.columns else "team_abbrev"
     value_column = "strength" if "strength" in strengths.columns else "team_strength"
 
     if team_column not in strengths.columns or value_column not in strengths.columns:
-        return {}
+        return {}, {}
 
-    return dict(zip(strengths[team_column].astype(str), strengths[value_column].astype(float)))
+    team_fallback = (
+        strengths.groupby(team_column)[value_column].mean().astype(float).to_dict()
+    )
+    if "season" not in strengths.columns:
+        return {}, team_fallback
+
+    seasonal = {
+        (str(row[team_column]), str(row["season"])): float(row[value_column])
+        for _, row in strengths.iterrows()
+    }
+    return seasonal, team_fallback
 
 
 def add_team_strength_features(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy()
-    strengths = load_team_strengths()
+    seasonal, team_fallback = load_team_strengths()
 
-    output["home_team_strength"] = (
-        output["home_team_abbrev"].map(strengths).fillna(DEFAULT_TEAM_STRENGTH)
-    )
-    output["away_team_strength"] = (
-        output["away_team_abbrev"].map(strengths).fillna(DEFAULT_TEAM_STRENGTH)
-    )
+    seasons = output["game_id"].astype(str).map(season_from_game_id)
+
+    def lookup(teams: pd.Series) -> pd.Series:
+        keys = list(zip(teams.astype(str), seasons))
+        values = [
+            seasonal.get(key, team_fallback.get(key[0], DEFAULT_TEAM_STRENGTH))
+            for key in keys
+        ]
+        return pd.Series(values, index=teams.index, dtype=float)
+
+    output["home_team_strength"] = lookup(output["home_team_abbrev"])
+    output["away_team_strength"] = lookup(output["away_team_abbrev"])
     output["team_strength_diff_home"] = output["home_team_strength"] - output["away_team_strength"]
 
     return output

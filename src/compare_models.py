@@ -2,19 +2,15 @@ from pathlib import Path
 import argparse
 import json
 
-import joblib
 import pandas as pd
-import torch
 
 from ml_pipeline_utils import (
     TARGET_COLUMN,
-    apply_terminal_state_overrides,
     compute_probability_metrics,
     load_shared_training_inputs,
     rank_leaderboard,
 )
-from train_baseline import baseline_home_win_probability
-from train_neural_network import WinProbabilityNeuralNetwork
+from model_predictions import COMPETITOR_MODEL_KEYS, MODEL_LABELS as COMPETITOR_LABELS, predict_test_probabilities
 
 
 PROCESSED_DIR = Path("data/processed")
@@ -247,105 +243,20 @@ def get_biggest_disagreements(
     )
 
 
-def evaluate_baseline_model(
-    train_data: pd.DataFrame,
-    test_data: pd.DataFrame,
-) -> dict:
-    prediction_frame = test_data.copy()
-    prediction_frame["home_win_prob"] = prediction_frame.apply(
-        baseline_home_win_probability,
-        axis=1,
-    )
-    prediction_frame = apply_terminal_state_overrides(prediction_frame)
-
-    return compute_probability_metrics(
-        y_true=prediction_frame[TARGET_COLUMN],
-        probabilities=prediction_frame["home_win_prob"],
-        model_key="baseline",
-        model_name=MODEL_LABELS["baseline"],
-        feature_count=0,
-        train_data=train_data,
-        test_data=test_data,
-    )
-
-
-def evaluate_sklearn_model(
+def evaluate_model(
     model_key: str,
-    model_name: str,
-    model_path: Path,
     train_data: pd.DataFrame,
     test_data: pd.DataFrame,
     feature_columns: list[str],
 ) -> dict:
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Missing {model_name} model artifact: {model_path}. "
-            "Train models before generating the leaderboard."
-        )
-
-    model = joblib.load(model_path)
-    probabilities = model.predict_proba(test_data[feature_columns])[:, 1]
-
-    prediction_frame = test_data.copy()
-    prediction_frame["home_win_prob"] = probabilities
-    prediction_frame = apply_terminal_state_overrides(prediction_frame)
+    prediction_frame = predict_test_probabilities(model_key, test_data, feature_columns)
 
     return compute_probability_metrics(
         y_true=prediction_frame[TARGET_COLUMN],
         probabilities=prediction_frame["home_win_prob"],
         model_key=model_key,
-        model_name=model_name,
-        feature_count=len(feature_columns),
-        train_data=train_data,
-        test_data=test_data,
-    )
-
-
-def evaluate_pytorch_model(
-    train_data: pd.DataFrame,
-    test_data: pd.DataFrame,
-    feature_columns: list[str],
-) -> dict:
-    model_path = MODELS_DIR / "pytorch_win_probability_model.pt"
-    scaler_path = MODELS_DIR / "pytorch_scaler.joblib"
-
-    if not model_path.exists():
-        raise FileNotFoundError(
-            f"Missing PyTorch model artifact: {model_path}. "
-            "Train models before generating the leaderboard."
-        )
-
-    if not scaler_path.exists():
-        raise FileNotFoundError(
-            f"Missing PyTorch scaler artifact: {scaler_path}. "
-            "Train models before generating the leaderboard."
-        )
-
-    checkpoint = torch.load(model_path, map_location="cpu")
-    input_size = checkpoint.get("input_size", len(feature_columns))
-
-    model = WinProbabilityNeuralNetwork(input_size=input_size)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-
-    scaler = joblib.load(scaler_path)
-    X_test = test_data[feature_columns].astype(float)
-    X_test_scaled = scaler.transform(X_test)
-    X_test_tensor = torch.tensor(X_test_scaled, dtype=torch.float32)
-
-    with torch.no_grad():
-        probabilities = model(X_test_tensor).numpy().flatten()
-
-    prediction_frame = test_data.copy()
-    prediction_frame["home_win_prob"] = probabilities
-    prediction_frame = apply_terminal_state_overrides(prediction_frame)
-
-    return compute_probability_metrics(
-        y_true=prediction_frame[TARGET_COLUMN],
-        probabilities=prediction_frame["home_win_prob"],
-        model_key="pytorch_neural_network",
-        model_name=MODEL_LABELS["pytorch_neural_network"],
-        feature_count=len(feature_columns),
+        model_name=COMPETITOR_LABELS[model_key],
+        feature_count=0 if model_key == "baseline" else len(feature_columns),
         train_data=train_data,
         test_data=test_data,
     )
@@ -367,24 +278,8 @@ def build_leaderboard() -> pd.DataFrame:
     )
 
     metrics = [
-        evaluate_baseline_model(train_data, test_data),
-        evaluate_sklearn_model(
-            model_key="logistic_regression",
-            model_name=MODEL_LABELS["logistic_regression"],
-            model_path=MODELS_DIR / "win_probability_model.joblib",
-            train_data=train_data,
-            test_data=test_data,
-            feature_columns=feature_columns,
-        ),
-        evaluate_sklearn_model(
-            model_key="random_forest",
-            model_name=MODEL_LABELS["random_forest"],
-            model_path=MODELS_DIR / "advanced_win_probability_model.joblib",
-            train_data=train_data,
-            test_data=test_data,
-            feature_columns=feature_columns,
-        ),
-        evaluate_pytorch_model(train_data, test_data, feature_columns),
+        evaluate_model(model_key, train_data, test_data, feature_columns)
+        for model_key in COMPETITOR_MODEL_KEYS
     ]
 
     leaderboard = rank_leaderboard(pd.DataFrame(metrics))

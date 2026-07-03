@@ -107,19 +107,24 @@ def process_game(game_id: str) -> pd.DataFrame:
 
 
 def build_training_dataset(
-    season: str,
+    seasons: list[str],
     season_type: str,
     max_games: int,
     sleep_seconds: float,
 ) -> pd.DataFrame:
     """
-    Builds one combined training dataset from many games.
+    Builds one combined training dataset from many games across one or more seasons.
+    `max_games` applies per season.
     """
-    game_ids = get_game_ids(
-        season=season,
-        season_type=season_type,
-        max_games=max_games,
-    )
+    game_ids = []
+    for season in seasons:
+        game_ids.extend(
+            get_game_ids(
+                season=season,
+                season_type=season_type,
+                max_games=max_games,
+            )
+        )
 
     all_games = []
 
@@ -166,8 +171,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--season",
         type=str,
-        default="2023-24",
-        help="NBA season, example: 2023-24.",
+        default=None,
+        help="Single NBA season, example: 2023-24 (kept for compatibility).",
+    )
+
+    parser.add_argument(
+        "--seasons",
+        nargs="+",
+        default=None,
+        help="One or more NBA seasons, example: --seasons 2022-23 2023-24.",
     )
 
     parser.add_argument(
@@ -198,8 +210,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
+    seasons = args.seasons or [args.season or "2023-24"]
+
     training_data = build_training_dataset(
-        season=args.season,
+        seasons=seasons,
         season_type=args.season_type,
         max_games=args.max_games,
         sleep_seconds=args.sleep_seconds,

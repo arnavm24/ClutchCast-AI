@@ -29,13 +29,25 @@ MODEL_CONFIG = {
         "prediction_file_prefix": "advanced_predictions",
         "model_path": MODELS_DIR / "advanced_win_probability_model.joblib",
     },
+    "gradient_boosting": {
+        "name": "Gradient Boosting",
+        "prediction_file_prefix": "gbm_predictions",
+        "model_path": MODELS_DIR / "gradient_boosting_win_probability_model.joblib",
+    },
     "pytorch_neural_network": {
         "name": "PyTorch Neural Network",
         "prediction_file_prefix": "neural_predictions",
         "model_path": MODELS_DIR / "pytorch_win_probability_model.pt",
         "scaler_path": MODELS_DIR / "pytorch_scaler.joblib",
     },
+    "sequence_gru": {
+        "name": "GRU Sequence Model",
+        "prediction_file_prefix": "seq_predictions",
+        "model_path": MODELS_DIR / "sequence_gru_model.pt",
+    },
 }
+
+CALIBRATOR_PATH = MODELS_DIR / "champion_calibrator.joblib"
 
 
 def load_champion_metadata() -> dict:
@@ -79,11 +91,27 @@ def load_model_bundle(model_key: str | None = None) -> dict:
     feature_columns = load_feature_columns()
     bundle["feature_columns"] = feature_columns
 
-    if selected_model_key in {"logistic_regression", "random_forest"}:
+    if selected_model_key in {"logistic_regression", "random_forest", "gradient_boosting"}:
         model_path = MODEL_CONFIG[selected_model_key]["model_path"]
         if not model_path.exists():
             raise FileNotFoundError(f"Missing model artifact: {model_path}")
         bundle["model"] = joblib.load(model_path)
+        return bundle
+
+    if selected_model_key == "sequence_gru":
+        from train_sequence_model import WinProbabilityGRU
+
+        model_path = MODEL_CONFIG[selected_model_key]["model_path"]
+        if not model_path.exists():
+            raise FileNotFoundError(f"Missing sequence model artifact: {model_path}")
+        checkpoint = torch.load(model_path, map_location="cpu")
+        model = WinProbabilityGRU(
+            input_size=checkpoint.get("input_size", 11),
+            hidden_size=checkpoint.get("hidden_size", 64),
+        )
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model.eval()
+        bundle["model"] = model
         return bundle
 
     model_path = MODEL_CONFIG[selected_model_key]["model_path"]
@@ -106,16 +134,36 @@ def load_model_bundle(model_key: str | None = None) -> dict:
     return bundle
 
 
+def load_champion_calibrator(champion_key: str):
+    """Isotonic post-processing layer; only applied when fitted for the current champion."""
+    if not CALIBRATOR_PATH.exists():
+        return None
+    try:
+        payload = joblib.load(CALIBRATOR_PATH)
+    except Exception:
+        return None
+    if payload.get("champion_key") != champion_key:
+        return None
+    return payload.get("calibrator")
+
+
 def predict_game_state(game_state: pd.DataFrame, model_key: str | None = None) -> pd.DataFrame:
     bundle = load_model_bundle(model_key)
     output = game_state.copy()
 
     if bundle["model_key"] == "baseline":
         output["home_win_prob"] = output.apply(baseline_home_win_probability, axis=1)
-    elif bundle["model_key"] in {"logistic_regression", "random_forest"}:
+    elif bundle["model_key"] in {"logistic_regression", "random_forest", "gradient_boosting"}:
         model_ready_data = build_model_features(output)
         X = model_ready_data[bundle["feature_columns"]]
         output["home_win_prob"] = bundle["model"].predict_proba(X)[:, 1]
+    elif bundle["model_key"] == "sequence_gru":
+        from sequence_features import build_game_windows
+
+        model_ready_data = build_model_features(output)
+        windows = torch.from_numpy(build_game_windows(model_ready_data))
+        with torch.no_grad():
+            output["home_win_prob"] = bundle["model"](windows).numpy()
     else:
         model_ready_data = build_model_features(output)
         X = model_ready_data[bundle["feature_columns"]].astype(float)
@@ -124,6 +172,14 @@ def predict_game_state(game_state: pd.DataFrame, model_key: str | None = None) -
 
         with torch.no_grad():
             output["home_win_prob"] = bundle["model"](X_tensor).numpy().flatten()
+
+    # A monotonic calibrator cannot change which side is favored, only how
+    # honest the probabilities are; applied before terminal 0/1 overrides.
+    champion_key = bundle["metadata"].get("model_key", "")
+    if (model_key is None or model_key == champion_key) and bundle["model_key"] == champion_key:
+        calibrator = load_champion_calibrator(champion_key)
+        if calibrator is not None:
+            output["home_win_prob"] = calibrator.predict(output["home_win_prob"].clip(0, 1))
 
     output = apply_terminal_state_overrides(output)
     output["prediction_source"] = bundle["model_key"]

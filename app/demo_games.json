@@ -1,0 +1,35 @@
+{
+  "generated": "2026-07-03T18:11:30.147929+00:00",
+  "demos": [
+    {
+      "key": "close_finish",
+      "label": "🔥 Close Finish",
+      "game_id": "0022200954",
+      "tagline": "LAC 127-128 SAC · decided by 1"
+    },
+    {
+      "key": "overtime",
+      "label": "⏰ Overtime Thriller",
+      "game_id": "0022500974",
+      "tagline": "DEN 125-127 LAL · 1OT"
+    },
+    {
+      "key": "comeback",
+      "label": "⛰️ Big Comeback",
+      "game_id": "0022500916",
+      "tagline": "BKN 107-105 DET · won after trailing by 23"
+    },
+    {
+      "key": "blowout",
+      "label": "🧹 Blowout",
+      "game_id": "0022500926",
+      "tagline": "ORL 130-91 MIL · won by 39"
+    },
+    {
+      "key": "most_dramatic",
+      "label": "🎭 Highest Drama",
+      "game_id": "0022500959",
+      "tagline": "BOS 102-104 OKC · drama 92/100"
+    }
+  ]
+}

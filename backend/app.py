@@ -273,4 +273,5 @@ def subscribe_game(message):
 
 
 if __name__ == "__main__":
-    socketio.run(app, host="127.0.0.1", port=5000, debug=True)
+    # Local-first MVP: Werkzeug is fine here and is not exposed beyond localhost.
+    socketio.run(app, host="127.0.0.1", port=5000, debug=True, allow_unsafe_werkzeug=True)
