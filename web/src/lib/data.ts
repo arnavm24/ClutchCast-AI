@@ -16,6 +16,7 @@ export interface GameSummary {
   overtime: boolean;
   leadChanges: number;
   drama: number | null;
+  playoffRound: number;
   analyzed: boolean;
 }
 

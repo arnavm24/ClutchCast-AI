@@ -20,7 +20,7 @@ INDEX_COLUMNS = [
     "game_id", "season", "season_type", "home_team", "away_team",
     "final_home_score", "final_away_score", "final_margin", "home_won",
     "max_period", "went_overtime", "n_overtimes", "lead_changes", "tied_states",
-    "winner_max_deficit", "looks_complete", "is_test_game",
+    "winner_max_deficit", "playoff_round", "looks_complete", "is_test_game",
 ]
 
 
@@ -35,6 +35,17 @@ def season_from_game_id(game_id: str) -> str:
 
 def season_type_from_game_id(game_id: str) -> str:
     return SEASON_TYPE_BY_DIGIT.get(str(game_id).zfill(10)[2], "Unknown")
+
+
+def playoff_round_from_game_id(game_id: str) -> int:
+    """Playoff ids encode the round at position 7: 004YY00RSG (4 = Finals)."""
+    digits = str(game_id).zfill(10)
+    if digits[2] != "4":
+        return 0
+    try:
+        return int(digits[7])
+    except ValueError:
+        return 0
 
 
 def count_lead_changes(margins: pd.Series) -> int:
@@ -130,6 +141,7 @@ def build_game_index() -> pd.DataFrame:
             "lead_changes": count_lead_changes(margins),
             "tied_states": count_tied_states(margins),
             "winner_max_deficit": winner_max_deficit,
+            "playoff_round": playoff_round_from_game_id(game_id),
             # Truncated play-by-play shows up as implausibly low final scores.
             "looks_complete": max_period >= 4 and min(final_home, final_away) >= 70,
             "is_test_game": game_id in test_ids,

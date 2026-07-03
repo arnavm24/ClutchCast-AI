@@ -1,6 +1,12 @@
 {
-  "generated": "2026-07-03T18:11:30.147929+00:00",
+  "generated": "2026-07-03T19:01:41.102059+00:00",
   "demos": [
+    {
+      "key": "finals",
+      "label": "🏆 NBA Finals",
+      "game_id": "0042500405",
+      "tagline": "NYK 94-90 SAS · the title clincher"
+    },
     {
       "key": "close_finish",
       "label": "🔥 Close Finish",
@@ -16,8 +22,8 @@
     {
       "key": "comeback",
       "label": "⛰️ Big Comeback",
-      "game_id": "0022500916",
-      "tagline": "BKN 107-105 DET · won after trailing by 23"
+      "game_id": "0042500404",
+      "tagline": "SAS 106-107 NYK · won after trailing by 29"
     },
     {
       "key": "blowout",
@@ -28,8 +34,8 @@
     {
       "key": "most_dramatic",
       "label": "🎭 Highest Drama",
-      "game_id": "0022500959",
-      "tagline": "BOS 102-104 OKC · drama 92/100"
+      "game_id": "0042500152",
+      "tagline": "POR 106-103 SAS · drama 93/100"
     }
   ]
 }

@@ -87,6 +87,15 @@ def build_demos() -> list[dict]:
             "tagline": tagline_fn(row),
         })
 
+    if "playoff_round" in candidates.columns:
+        finals = candidates[candidates["playoff_round"] == 4].copy()
+        # Highest game_id in the latest season's Finals = the clincher.
+        finals = finals.sort_values("game_id", ascending=False)
+        add_demo(
+            "finals", "🏆 NBA Finals",
+            finals,
+            lambda row: f"{matchup_text(row)} · the title clincher",
+        )
     add_demo(
         "close_finish", "🔥 Close Finish",
         candidates.sort_values(["abs_margin", "drama"], ascending=[True, False]),

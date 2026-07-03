@@ -19,6 +19,7 @@ export default function GameBrowser({ games }: { games: GameSummary[] }) {
   const [team, setTeam] = useState("");
   const [closeOnly, setCloseOnly] = useState(false);
   const [overtimeOnly, setOvertimeOnly] = useState(false);
+  const [playoffsOnly, setPlayoffsOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>("drama");
   const [limit, setLimit] = useState(12);
 
@@ -27,6 +28,7 @@ export default function GameBrowser({ games }: { games: GameSummary[] }) {
     if (team) rows = rows.filter((g) => g.home === team || g.away === team);
     if (closeOnly) rows = rows.filter((g) => Math.abs(g.margin) <= 5);
     if (overtimeOnly) rows = rows.filter((g) => g.overtime);
+    if (playoffsOnly) rows = rows.filter((g) => g.playoffRound > 0);
     rows = [...rows].sort((a, b) => {
       if (sort === "drama") return (b.drama ?? -1) - (a.drama ?? -1);
       if (sort === "closest") return Math.abs(a.margin) - Math.abs(b.margin);
@@ -55,6 +57,7 @@ export default function GameBrowser({ games }: { games: GameSummary[] }) {
         </select>
         <button className={toggleClass(closeOnly)} onClick={() => setCloseOnly(!closeOnly)}>Close finishes</button>
         <button className={toggleClass(overtimeOnly)} onClick={() => setOvertimeOnly(!overtimeOnly)}>Overtime</button>
+        <button className={toggleClass(playoffsOnly)} onClick={() => setPlayoffsOnly(!playoffsOnly)}>🏆 Playoffs</button>
         <div className="ml-auto flex items-center gap-1 text-xs font-bold text-muted">
           sort
           {(["drama", "date", "closest"] as SortKey[]).map((key) => (

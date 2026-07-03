@@ -44,29 +44,38 @@ def load_champion() -> dict:
 
 
 def fetch_game_dates(seasons: list[str]) -> pd.DataFrame:
-    """Game dates + matchups via LeagueGameFinder, cached to reports/game_dates.csv."""
-    if GAME_DATES_PATH.exists():
-        cached = pd.read_csv(GAME_DATES_PATH, dtype={"game_id": str})
-        if set(seasons).issubset(set(cached["season"].unique())):
+    """Game dates via LeagueGameFinder (regular season + playoffs), cached."""
+    wanted = [(season, season_type) for season in seasons for season_type in ("Regular Season", "Playoffs")]
+    cached = pd.read_csv(GAME_DATES_PATH, dtype={"game_id": str}) if GAME_DATES_PATH.exists() else pd.DataFrame()
+    if not cached.empty and "season_type" in cached.columns:
+        have = set(zip(cached["season"], cached["season_type"]))
+        if all(pair in have for pair in wanted):
             return cached
     import time
 
     from nba_api.stats.endpoints import leaguegamefinder
 
     frames = []
-    for season in seasons:
-        print(f"Fetching game dates for {season}...")
-        finder = leaguegamefinder.LeagueGameFinder(
-            season_nullable=season, league_id_nullable="00",
-            season_type_nullable="Regular Season", timeout=30,
-        )
-        games = finder.get_data_frames()[0]
+    for season, season_type in wanted:
+        print(f"Fetching game dates for {season} {season_type}...")
+        try:
+            finder = leaguegamefinder.LeagueGameFinder(
+                season_nullable=season, league_id_nullable="00",
+                season_type_nullable=season_type, timeout=30,
+            )
+            games = finder.get_data_frames()[0]
+        except Exception as error:
+            print(f"  skipped ({error})")
+            continue
+        if games.empty:
+            continue
         games["GAME_ID"] = games["GAME_ID"].astype(str).str.zfill(10)
         games = games.drop_duplicates(subset=["GAME_ID"])
         frames.append(pd.DataFrame({
             "game_id": games["GAME_ID"],
             "date": games["GAME_DATE"].astype(str),
             "season": season,
+            "season_type": season_type,
         }))
         time.sleep(0.7)
     dates = pd.concat(frames, ignore_index=True)
@@ -290,6 +299,7 @@ def main() -> None:
     for _, row in index.iterrows():
         game_id = row["game_id"]
         is_analyzed = game_id in analyzed
+        playoff_round = int(row.get("playoff_round", 0) or 0)
         games_index.append({
             "id": game_id,
             "date": date_map.get(game_id),
@@ -300,6 +310,7 @@ def main() -> None:
             "overtime": bool(row["went_overtime"]),
             "leadChanges": int(row["lead_changes"]),
             "drama": drama.get(game_id),
+            "playoffRound": playoff_round,
             "analyzed": is_analyzed,
         })
         if is_analyzed:
