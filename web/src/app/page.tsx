@@ -20,8 +20,8 @@ export default async function HomePage() {
           Every game has a moment it was <span className="brand-gradient">decided</span>. Find it.
         </h1>
         <p className="mt-4 max-w-2xl text-base text-muted sm:text-lg">
-          ClutchCast AI tracks the win probability of every play — trained on three NBA seasons, tested on games it has
-          never seen, and honest about how sure it really is.
+          ClutchCast AI tracks the win probability of every play. It is trained on three NBA seasons, tested on games
+          it has never seen, and honest about how sure it really is.
         </p>
       </Reveal>
 
@@ -37,7 +37,7 @@ export default async function HomePage() {
         <Reveal delay={0.15} className="mt-14">
           <div className="mb-4 flex items-baseline justify-between">
             <h2 className="text-xl font-black tracking-tight">Featured games</h2>
-            <span className="text-xs font-semibold text-muted">hand-picked by the model</span>
+            <span className="text-xs font-semibold text-muted">chosen by the model</span>
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {featuredGames.map(({ meta, game }) => (

@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const game = await loadGame(id);
   if (!game) return { title: "Game not found" };
-  const title = `${game.away} ${game.finalAway} — ${game.finalHome} ${game.home}${game.overtime ? " (OT)" : ""}`;
+  const title = `${game.away} ${game.finalAway}-${game.finalHome} ${game.home}${game.overtime ? " (OT)" : ""}`;
   const description = `Win probability timeline, turning points, and player impact for ${game.away} at ${game.home}.`;
   return { title, description, openGraph: { title, description } };
 }
@@ -48,7 +48,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
       <Reveal className="mt-12">
         <h2 className="mb-1 text-xl font-black tracking-tight">The story of the game</h2>
-        <p className="mb-5 text-sm text-muted">Win probability after every play — hover to relive any moment.</p>
+        <p className="mb-5 text-sm text-muted">Win probability after every play. Hover to relive any moment.</p>
         <div className="panel px-4 py-5 sm:px-6">
           <WinProbChart timeline={game.timeline} home={game.home} away={game.away} />
         </div>
@@ -101,8 +101,8 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
                 </div>
                 <div className="mt-2 text-sm font-bold">{tp.player} <span className="text-muted">({tp.team})</span></div>
                 <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">{tp.play}</p>
-                <div className="mt-3 flex items-center gap-2 text-[11px] font-bold tabular-nums text-muted">
-                  {tp.before.toFixed(0)}% <span className="text-foreground">→</span> {tp.after.toFixed(0)}% home
+                <div className="mt-3 text-[11px] font-bold tabular-nums text-muted">
+                  Home win probability: {tp.before.toFixed(0)}% <span className="text-foreground">→</span> {tp.after.toFixed(0)}%
                 </div>
               </div>
             ))}
@@ -113,7 +113,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
       {game.players.length > 0 && (
         <Reveal className="mt-12">
           <h2 className="mb-1 text-xl font-black tracking-tight">Who actually swung it</h2>
-          <p className="mb-5 text-sm text-muted">Players ranked by total win-probability impact — not points.</p>
+          <p className="mb-5 text-sm text-muted">Players ranked by how much they moved the win probability, not by points scored.</p>
           <div className="grid gap-4 sm:grid-cols-2">
             {game.players.slice(0, 6).map((player, i) => (
               <PlayerCard key={`${player.name}-${player.team}`} player={player} rank={i} />

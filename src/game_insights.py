@@ -206,10 +206,10 @@ def build_game_drama_score(predictions: pd.DataFrame, winner: str) -> tuple[int,
     score = int(max(0, min(100, score)))
 
     explanation = (
-        f"Drama score {score}/100: final margin {final_margin}, "
-        f"{lead_changes} lead changes, {ties} tied states, {major_swings} major WP swings, "
-        f"losing team max WP {losing_wp_component:.1f}%, max deficit overcome {max_deficit_overcome}, "
-        f"peak clutch pressure {clutch_component:.1f}."
+        f"Decided by {final_margin} {'point' if abs(final_margin) == 1 else 'points'} with "
+        f"{lead_changes} lead {'change' if lead_changes == 1 else 'changes'} and {ties} {'tie' if ties == 1 else 'ties'}. "
+        f"The game saw {major_swings} major win probability {'swing' if major_swings == 1 else 'swings'}, "
+        f"and the losing team's chances peaked at {losing_wp_component:.0f}%."
     )
 
     return score, explanation
@@ -316,7 +316,7 @@ def build_clutch_scoring_summary(game_state: pd.DataFrame) -> tuple[str, str]:
                 for row in top_scorers.itertuples(index=False)
             )
 
-    summary = f"Final 5 minutes of 4Q/OT scoring: Home {home_points}, Away {away_points}."
+    summary = f"Scoring over the final five minutes: home team {home_points}, away team {away_points}."
     return summary, scorer_text
 
 
@@ -327,8 +327,8 @@ def format_play(row: pd.Series | None, swing_column: str) -> tuple[str, str]:
     swing_pct = float(row[swing_column]) * 100
     when = format_period_clock(int(row["period"]), row.get("clock", ""))
     details = (
-        f"{when}, {row['event_team']} - {row['event_player']}: "
-        f"{row['event_description']} ({swing_pct:+.1f} WP points)"
+        f"{when}, {row['event_player']} ({row['event_team']}): "
+        f"{row['event_description']}. It swung the win probability by {swing_pct:+.1f} points."
     )
     return str(row["event_description"]), details
 

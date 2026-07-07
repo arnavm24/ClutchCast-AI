@@ -130,6 +130,10 @@ def player_id_map(game_id: str) -> dict[tuple[str, str], int]:
     }
 
 
+def strip_markdown(text: str) -> str:
+    return re.sub(r"\*\*|__|`", "", text)
+
+
 def extract_recap_sections(recap_path: Path) -> dict:
     if not recap_path.exists():
         return {}
@@ -139,7 +143,7 @@ def extract_recap_sections(recap_path: Path) -> dict:
         match = re.search(rf"^##\s+{re.escape(name)}\s*$(.*?)(?=^##\s|\Z)", text, re.MULTILINE | re.DOTALL | re.IGNORECASE)
         if match:
             body = " ".join(line.strip(" -*") for line in match.group(1).splitlines() if line.strip())
-            sections[name] = body.strip()
+            sections[name] = strip_markdown(body).strip()
     return sections
 
 

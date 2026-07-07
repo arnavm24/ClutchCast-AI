@@ -9,20 +9,20 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 export const metadata: Metadata = {
   metadataBase: new URL("https://clutchcast-ai.vercel.app"),
   title: {
-    default: "ClutchCast AI — NBA Win Probability",
+    default: "ClutchCast AI: NBA Win Probability",
     template: "%s | ClutchCast AI",
   },
   description:
-    "Live NBA win probability, turning points, and player impact — powered by a calibration-tested machine learning model.",
+    "Live NBA win probability, turning points, and player impact, powered by a machine learning model tested for honest percentages.",
   openGraph: {
-    title: "ClutchCast AI — NBA Win Probability",
+    title: "ClutchCast AI: NBA Win Probability",
     description: "Every game has a moment it was decided. Find it.",
     siteName: "ClutchCast AI",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "ClutchCast AI — NBA Win Probability",
+    title: "ClutchCast AI: NBA Win Probability",
     description: "Every game has a moment it was decided. Find it.",
   },
 };

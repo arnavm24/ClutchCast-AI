@@ -156,13 +156,13 @@ export default function WinProbChart({
             </div>
             <div className="text-sm font-bold tabular-nums">
               <span style={{ color: awayColor }}>{away} {hovered.as}</span>
-              <span className="mx-2 text-muted">—</span>
+              <span className="mx-2 text-muted">·</span>
               <span style={{ color: homeColor }}>{home} {hovered.hs}</span>
             </div>
             <div className="text-sm font-black tabular-nums" style={{ color: homeColor }}>
               {home} {hovered.wp.toFixed(1)}%
             </div>
-            <div className="min-w-0 flex-1 truncate text-sm text-muted">{hovered.play || "—"}</div>
+            <div className="min-w-0 flex-1 truncate text-sm text-muted">{hovered.play || "No play description"}</div>
           </>
         ) : (
           <div className="text-sm text-muted">Hover the chart to relive any moment of the game.</div>

@@ -46,6 +46,20 @@ def pluralize_point(value: int) -> str:
 
 
 def get_team_labels(game_id: str) -> tuple[str, str]:
+    # Offline first: the game index already knows every matchup, and hammering
+    # nba_api once per game gets throttled during batch runs.
+    index_path = REPORTS_DIR / "game_index.csv"
+    if index_path.exists():
+        try:
+            index = pd.read_csv(index_path, dtype={"game_id": str})
+            rows = index[index["game_id"].str.zfill(10) == str(game_id).zfill(10)]
+            if not rows.empty:
+                home = str(rows.iloc[0]["home_team"]).strip()
+                away = str(rows.iloc[0]["away_team"]).strip()
+                if home and away and home.lower() != "nan" and away.lower() != "nan":
+                    return home, away
+        except Exception:
+            pass
     try:
         summary = boxscoresummaryv2.BoxScoreSummaryV2(game_id=game_id, timeout=30)
         try:
@@ -183,9 +197,9 @@ def build_recap(
     recap_lines = [
         "# ClutchCast AI Post-Game Recap",
         "",
-        f"**Game:** {away_team} at {home_team}",
-        f"**Game ID:** `{game_id}`",
-        f"**Model Used:** {prediction_label}",
+        f"Game: {away_team} at {home_team}",
+        f"Game ID: {game_id}",
+        f"Model: {prediction_label}",
         "",
         "## Final Result",
         "",
@@ -198,17 +212,16 @@ def build_recap(
         turning_after = float(top_turning_point["wp_after_pct"])
         turning_swing = float(top_turning_point["wp_swing_pct"])
         turning_play = str(top_turning_point["event_description"])
+        beneficiary = home_team if turning_swing > 0 else away_team
         recap_lines.extend([
             "",
             "## Biggest Turning Point",
             "",
             (
-                f"The game's sharpest probability swing came at **{when}**, when home win probability "
-                f"moved from **{turning_before:.1f}%** to **{turning_after:.1f}%** "
-                f"(**{turning_swing:+.1f} percentage points**)."
+                f"The game turned at {when}: {turning_play}. "
+                f"That single play moved {home_team}'s chance of winning from {turning_before:.0f}% to "
+                f"{turning_after:.0f}%. No other moment shifted the game more, and it went {beneficiary}'s way."
             ),
-            "",
-            f"**Key play:** {turning_play}",
         ])
 
     if top_player is not None:
@@ -221,44 +234,45 @@ def build_recap(
             "## Player Impact",
             "",
             (
-                f"**{player_name} ({player_team})** led the player-impact table with "
-                f"**{player_impact_value:.1f} total win-probability impact points** "
-                f"across **{player_events} tracked events**."
+                f"No one influenced the outcome more than {player_name} of {player_team}. "
+                f"Across {player_events} plays, his actions moved the win probability by a combined "
+                f"{player_impact_value:.0f} percentage points, the most of any player on the floor."
             ),
         ])
 
     if top_comeback is not None:
         when = format_period_clock(int(top_comeback["period"]), top_comeback["clock"])
-        trailing_team = str(top_comeback["trailing_team"])
+        trailing_side = str(top_comeback["trailing_team"])
+        trailing_name = home_team if trailing_side == "Home" else away_team if trailing_side == "Away" else trailing_side
         deficit = int(top_comeback["deficit"])
         comeback_probability = float(top_comeback["comeback_probability_pct"])
-        comeback_status = str(top_comeback["comeback_status"])
+        comeback_status = str(top_comeback["comeback_status"]).lower()
         recap_lines.extend([
             "",
             "## Comeback Reality",
             "",
             (
-                f"The most interesting comeback window came at **{when}**. **{trailing_team}** "
-                f"trailed by **{deficit} {pluralize_point(deficit)}** with an estimated comeback "
-                f"chance of **{comeback_probability:.1f}%**, which ClutchCast labeled **{comeback_status}**."
+                f"The tensest moment for a comeback came at {when}, with {trailing_name} down "
+                f"{deficit} {pluralize_point(deficit)}. The model put their chance of pulling it off "
+                f"at {comeback_probability:.0f}%. In other words: {comeback_status}, but not nothing."
             ),
         ])
 
     if top_momentum is not None:
         when = format_period_clock(int(top_momentum["period"]), top_momentum["clock"])
-        momentum_score = float(top_momentum["hidden_momentum_score"])
-        momentum_label = str(top_momentum["momentum_label"])
+        momentum_label = str(top_momentum["momentum_label"]).lower()
+        momentum_team = away_team if "away" in momentum_label else home_team if "home" in momentum_label else ""
         momentum_play = str(top_momentum["event_description"])
+        momentum_sentence = (
+            f"The strongest run that didn't fully show on the scoreboard came at {when}"
+            + (f", with the game tilting {momentum_team}'s way" if momentum_team else "")
+            + f". The play in the middle of it: {momentum_play}."
+        )
         recap_lines.extend([
             "",
             "## Hidden Momentum",
             "",
-            (
-                f"The strongest hidden-momentum reading came at **{when}**, with a score of "
-                f"**{momentum_score:.1f}** and a label of **{momentum_label}**."
-            ),
-            "",
-            f"**Momentum play:** {momentum_play}",
+            momentum_sentence,
         ])
 
     recap_lines.extend([
@@ -266,8 +280,9 @@ def build_recap(
         "## Model Note",
         "",
         (
-            "ClutchCast selects its champion model using probability-quality metrics: Brier score first, "
-            "then log loss, ROC-AUC, and accuracy. The recap uses the champion prediction file when available."
+            "These numbers come from ClutchCast's champion model, the winner of a competition between six "
+            "models. The winner is judged on how honest its probabilities are on games it never trained on, "
+            "not just how often it picks the right winner."
         ),
         "",
     ])

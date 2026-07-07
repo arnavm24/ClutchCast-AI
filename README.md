@@ -132,6 +132,20 @@ python src/compare_models.py --leaderboard
 python src/calibrate_champion.py
 ```
 
+## Automated Weekly Refresh
+
+`src/refresh_all.py` runs the whole lifecycle unattended: download new games for the current season, retrain all six models, re-select the champion, re-run calibration, analyze the newest completed games, export web data, build, parity-check, and push (Vercel auto-deploys from main). It exits early when there are no new games, so offseason runs are free.
+
+```powershell
+# one-time setup: registers "ClutchCast Weekly Refresh" (Mondays 6:00 AM)
+powershell -ExecutionPolicy Bypass -File scripts\register_refresh_task.ps1
+
+# manual run / dry run
+python src/refresh_all.py --skip-push
+```
+
+Logs land in `reports/refresh_logs/`.
+
 ## Calibration Report
 
 Evaluates every model (plus the live scoreboard fallback) on held-out test games: reliability bins, expected calibration error, Brier by quarter, and overconfidence flags. Shares the exact prediction code path with the leaderboard via `src/model_predictions.py`.

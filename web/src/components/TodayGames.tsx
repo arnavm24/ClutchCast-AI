@@ -60,7 +60,7 @@ export default function TodayGames() {
       <div className="panel px-6 py-8">
         <div className="text-sm font-bold text-foreground">No NBA games today</div>
         <p className="mt-1 text-sm text-muted">
-          It&apos;s the offseason — the schedule picks back up in October. Meanwhile, relive the featured games below: every one has a full win-probability breakdown.
+          It&apos;s the offseason, and the schedule picks back up in October. Until then, relive the featured games below: every one has a full win probability breakdown.
         </p>
       </div>
     );

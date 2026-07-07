@@ -2,7 +2,7 @@ import Reveal from "@/components/Reveal";
 import ReliabilityChart from "@/components/ReliabilityChart";
 import { loadModels } from "@/lib/data";
 
-export const metadata = { title: "The Model — ClutchCast AI" };
+export const metadata = { title: "The Model" };
 
 export default async function ModelsPage() {
   const data = await loadModels();
@@ -19,8 +19,8 @@ export default async function ModelsPage() {
         </h1>
         <p className="mt-4 max-w-2xl text-muted">
           Every model trains on the same three seasons ({String(champion.train_games)} games) and is tested on{" "}
-          {String(champion.test_games)} games it has never seen. The champion is chosen by probability quality — when it
-          says 70%, does the team actually win 70% of the time? — not by accuracy or complexity.
+          {String(champion.test_games)} games it has never seen. The champion is chosen by probability quality, not by
+          accuracy or complexity. In plain terms: when it says 70%, does the team actually win 70% of the time?
         </p>
       </Reveal>
 
@@ -54,7 +54,7 @@ export default async function ModelsPage() {
                     <td className="score-num px-5 py-3 text-muted">{Number(row.roc_auc).toFixed(3)}</td>
                     <td className="score-num px-5 py-3 text-muted">{(Number(row.accuracy) * 100).toFixed(1)}%</td>
                     <td className="score-num px-5 py-3 text-muted">
-                      {cal ? Number(cal.ece).toFixed(4) : "—"}
+                      {cal ? Number(cal.ece).toFixed(4) : "n/a"}
                       {cal?.overconfident === true && <span className="ml-2 text-[10px] font-black uppercase text-amber-400">overconfident</span>}
                     </td>
                   </tr>
@@ -64,8 +64,8 @@ export default async function ModelsPage() {
           </table>
         </div>
         <p className="mt-3 text-xs text-muted">
-          Note the gradient boosting row: strong accuracy, weak Brier score — a model can pick winners well while its
-          percentages run too hot. That is exactly why accuracy alone doesn&apos;t decide the champion.
+          Note the gradient boosting row: strong accuracy, weak Brier score. A model can pick winners well while its
+          percentages run too hot, and that is exactly why accuracy alone doesn&apos;t decide the champion.
         </p>
       </Reveal>
 
@@ -87,7 +87,7 @@ export default async function ModelsPage() {
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-foreground/90">
               We also fit an isotonic calibration layer for the champion. On held-out games it{" "}
               {data.calibrationEffect.some((row) => row.applied === true) ? "improved probability quality and is applied at inference." : (
-                <>did <span className="font-bold">not</span> improve probability quality (Brier {Number(data.calibrationEffect[0]?.brier_score).toFixed(4)} raw vs {Number(data.calibrationEffect[1]?.brier_score).toFixed(4)} calibrated), so it is deliberately not applied — the champion is already well calibrated.</>
+                <>did <span className="font-bold">not</span> improve probability quality (Brier {Number(data.calibrationEffect[0]?.brier_score).toFixed(4)} raw vs {Number(data.calibrationEffect[1]?.brier_score).toFixed(4)} calibrated), so it is deliberately not applied. The champion is already well calibrated.</>
               )}
             </p>
           </div>
