@@ -50,12 +50,30 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <Link href="/models" className="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-foreground">
                 The Model
               </Link>
+              <a
+                href="https://github.com/arnavm24/ClutchCast-AI"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full px-4 py-2 transition hover:bg-white/5 hover:text-foreground"
+              >
+                GitHub
+              </a>
             </div>
           </nav>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-5 pb-24">{children}</main>
         <footer className="border-t border-line py-8 text-center text-xs text-muted">
-          ClutchCast AI · win probabilities from a model tested for honest percentages · not affiliated with the NBA
+          <p>
+            Built end to end by{" "}
+            <a href="https://github.com/arnavm24" target="_blank" rel="noopener noreferrer" className="font-bold text-foreground/80 hover:text-foreground hover:underline">
+              Arnav Munipati
+            </a>
+            : data pipeline, six competing models, and this site.{" "}
+            <a href="https://github.com/arnavm24/ClutchCast-AI" target="_blank" rel="noopener noreferrer" className="font-bold text-orange-300 hover:underline">
+              View the code
+            </a>
+          </p>
+          <p className="mt-2">Win probabilities from a model tested for honest percentages · not affiliated with the NBA</p>
         </footer>
         </Providers>
       </body>

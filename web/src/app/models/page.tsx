@@ -80,6 +80,57 @@ export default async function ModelsPage() {
         </div>
       </Reveal>
 
+      <Reveal className="mt-12">
+        <h2 className="mb-1 text-xl font-black tracking-tight">How it&apos;s built</h2>
+        <p className="mb-5 max-w-2xl text-sm text-muted">
+          The full lifecycle, from raw play-by-play to the page you are reading, is one codebase.
+        </p>
+        <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[
+            { value: (Number(champion.train_games) + Number(champion.test_games)).toLocaleString(), label: "games across 3 seasons" },
+            { value: (Number(champion.train_rows) + Number(champion.test_rows)).toLocaleString(), label: "game states learned from" },
+            { value: String(champion.feature_count), label: "engineered features" },
+            { value: String(leaderboard.length), label: "models competing" },
+          ].map((stat) => (
+            <div key={stat.label} className="panel px-5 py-5 text-center">
+              <div className="score-num text-3xl font-black">{stat.value}</div>
+              <div className="mt-1 text-[11px] font-bold uppercase tracking-widest text-muted">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="panel px-6 py-6">
+            <div className="eyebrow">The pipeline</div>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+              A Python pipeline (pandas, scikit-learn, PyTorch) turns every NBA play into a game state, engineers{" "}
+              {String(champion.feature_count)} features covering time, score, momentum, possession, and team strength
+              priors from the previous season, then trains all {leaderboard.length} models on identical data. Games are
+              split at the game level so no moment from a test game ever leaks into training. A scheduled job repeats
+              the whole cycle weekly during the season: download, retrain, re-select the champion, redeploy.
+            </p>
+          </div>
+          <div className="panel px-6 py-6">
+            <div className="eyebrow">The model runs in your browser</div>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+              This site has no Python server. The champion network&apos;s weights are exported to JSON and executed in
+              TypeScript, along with a full port of the feature pipeline. Every deploy runs a parity check proving the
+              TypeScript output matches the original PyTorch model to eight decimal places. During live games, your
+              browser fetches the play-by-play and computes win probability locally every ten seconds.
+            </p>
+          </div>
+        </div>
+        <div className="mt-5 text-center">
+          <a
+            href="https://github.com/arnavm24/ClutchCast-AI"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block rounded-full border border-orange-400/50 bg-orange-500/10 px-6 py-2.5 text-sm font-bold text-orange-200 transition hover:bg-orange-500/20"
+          >
+            Read the code on GitHub
+          </a>
+        </div>
+      </Reveal>
+
       {data.calibrationEffect.length > 0 && (
         <Reveal className="mt-12">
           <div className="panel px-6 py-6">
