@@ -90,9 +90,9 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
         <Reveal className="mt-12">
           <h2 className="mb-1 text-xl font-black tracking-tight">Turning points</h2>
           <p className="mb-5 text-sm text-muted">The plays that moved winning odds the most.</p>
-          <div className="scrollbar-hidden -mx-5 flex gap-4 overflow-x-auto px-5 pb-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {game.turningPoints.map((tp, i) => (
-              <div key={i} className="panel w-72 shrink-0 px-5 py-4">
+              <div key={i} className="panel px-5 py-4">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs font-black uppercase tracking-widest text-muted">{periodLabel(tp.per)} {tp.clock}</span>
                   <span className={`score-num text-lg font-black ${tp.swing >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
