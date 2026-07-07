@@ -1,11 +1,14 @@
 # ClutchCast AI
 
-ClutchCast AI is an NBA win-probability and game-intelligence platform. It turns NBA play-by-play data into game-state rows, trains multiple probability models fairly, selects a Champion Model by proper probability metrics, and presents the result in a polished Streamlit game-center dashboard.
+**Live at [clutchcast-ai.vercel.app](https://clutchcast-ai.vercel.app)**
 
-The project supports two workflows:
+ClutchCast AI is an NBA win-probability and game-intelligence platform. It turns NBA play-by-play data into game-state rows, trains six probability models fairly, selects a Champion Model by proper probability metrics, and ships the result as a Next.js web app — win-probability timelines for every analyzed game (including the NBA Finals), player impact rankings, today's slate, and live in-game predictions computed by the champion model running in the visitor's browser.
 
-- Past/completed game analysis using historical NBA play-by-play data in the Streamlit dashboard.
-- Local-first live prediction updates through a Flask + WebSocket MVP that polls `nba_api` and runs the Champion Model.
+The project has three layers:
+
+- **Web app (`web/`)** — the product: Next.js on Vercel, no Python at runtime. Historical analysis is precomputed to static JSON by `src/export_web_data.py`; the champion network's weights are exported and executed in TypeScript (parity-tested against PyTorch to 1e-8).
+- **ML pipeline (`src/`)** — data building, feature engineering, six-model training, champion selection, and calibration reporting.
+- **Local analyst tools (`app/`, `backend/`)** — a Streamlit dashboard and Flask live backend for deep local analysis (What-If simulator, model comparison, replay mode).
 
 ## Why It Exists
 

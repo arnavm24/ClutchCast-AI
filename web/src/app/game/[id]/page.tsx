@@ -11,6 +11,15 @@ export async function generateStaticParams() {
   return ids.map((id) => ({ id }));
 }
 
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const game = await loadGame(id);
+  if (!game) return { title: "Game not found" };
+  const title = `${game.away} ${game.finalAway} — ${game.finalHome} ${game.home}${game.overtime ? " (OT)" : ""}`;
+  const description = `Win probability timeline, turning points, and player impact for ${game.away} at ${game.home}.`;
+  return { title, description, openGraph: { title, description } };
+}
+
 function periodLabel(per: number) {
   return per <= 4 ? `Q${per}` : per === 5 ? "OT" : `${per - 4}OT`;
 }

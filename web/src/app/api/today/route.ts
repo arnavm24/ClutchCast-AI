@@ -46,6 +46,10 @@ async function fromEspn(): Promise<TodayGame[] | null> {
     const home = competitors.find((c: { homeAway: string }) => c.homeAway === "home");
     const away = competitors.find((c: { homeAway: string }) => c.homeAway === "away");
     if (!home || !away) continue;
+    // ESPN serves the most recent game day during the offseason; only games
+    // within a day of now actually belong under "Tonight".
+    const tipoff = Date.parse(String(event?.date ?? ""));
+    if (Number.isFinite(tipoff) && Math.abs(Date.now() - tipoff) > 24 * 60 * 60 * 1000) continue;
     const state = String(event?.status?.type?.state ?? "pre");
     const tricode = (raw: string) => ESPN_TRICODES[raw] ?? raw;
     games.push({

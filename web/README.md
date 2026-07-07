@@ -1,36 +1,27 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ClutchCast AI — Web App
 
-## Getting Started
+The production front end, live at [clutchcast-ai.vercel.app](https://clutchcast-ai.vercel.app). Next.js (App Router) + Tailwind + framer-motion. No Python at runtime.
 
-First, run the development server:
+## How data flows
+
+- **Historical games** are precomputed: `python src/export_web_data.py` (run from the repo root) writes `public/data/` — the browse index, per-game timelines/players/insights, model leaderboard + calibration, and the champion model bundle.
+- **The model runs in TypeScript.** `src/lib/model.ts` executes the champion MLP from exported weights; `src/lib/features.ts` ports the 85-feature engineering pipeline. Verify parity with PyTorch after re-exporting: `node scripts/parity.ts`.
+- **Today's games**: NBA CDN first (fetched from the visitor's browser — the CDN blocks datacenter IPs), then the `/api/today` proxy, then ESPN's open scoreboard as final fallback.
+- **Live games** (`/live/[id]`): play-by-play fetched in the browser, win probability computed client-side every 10 seconds; `/api/live/[id]` is the server fallback.
+
+## Develop
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Ship
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+node scripts/parity.ts
+vercel deploy --prod --yes
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+After retraining models or analyzing new games, re-run `python src/export_web_data.py` from the repo root before building.

@@ -101,9 +101,7 @@ function formatClock(clock: string) {
 
 export default function LiveGame({ gameId }: { gameId: string }) {
   const [data, setData] = useState<LivePayload | null>(null);
-  const historyRef = useRef<HistoryPoint[]>([]);
-  const [, force] = useState(0);
-
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
   const bundleRef = useRef<ModelBundle | null>(null);
 
   useEffect(() => {
@@ -123,13 +121,13 @@ export default function LiveGame({ gameId }: { gameId: string }) {
         if (cancelled) return;
         setData(payload);
         if (payload.homeWinProb != null && !payload.error) {
-          const history = historyRef.current;
           const wp = payload.homeWinProb * 100;
           const label = `Q${payload.period} ${formatClock(payload.clock)}`;
-          if (history.length === 0 || Math.abs(history[history.length - 1].wp - wp) > 0.01 || history[history.length - 1].label !== label) {
-            history.push({ wp, label });
-            force((n) => n + 1);
-          }
+          setHistory((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && Math.abs(last.wp - wp) <= 0.01 && last.label === label) return prev;
+            return [...prev, { wp, label }];
+          });
         }
       } catch {
         if (!cancelled) setData((prev) => prev ?? ({ error: "network" } as LivePayload));
@@ -165,7 +163,6 @@ export default function LiveGame({ gameId }: { gameId: string }) {
   const homeColor = teamColor(data.home);
   const awayColor = teamColor(data.away);
   const badge = SOURCE_BADGES[data.source] ?? SOURCE_BADGES.unavailable;
-  const history = historyRef.current;
   const live = data.gameStatus === 2;
 
   return (

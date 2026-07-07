@@ -35,7 +35,7 @@ export default function GameBrowser({ games }: { games: GameSummary[] }) {
       return (b.date ?? "").localeCompare(a.date ?? "");
     });
     return rows;
-  }, [games, team, closeOnly, overtimeOnly, sort]);
+  }, [games, team, closeOnly, overtimeOnly, playoffsOnly, sort]);
 
   const toggleClass = (active: boolean) =>
     `rounded-full border px-4 py-2 text-xs font-bold transition ${
