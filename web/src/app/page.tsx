@@ -49,7 +49,7 @@ export default async function HomePage() {
 
       <Reveal delay={0.1} className="mt-14">
         <div className="mb-4 flex items-baseline justify-between">
-          <h2 className="text-xl font-black tracking-tight">Browse every game</h2>
+          <h2 className="text-xl font-black tracking-tight">Browse the games</h2>
           <Link href="/models" className="text-xs font-bold text-orange-300 hover:underline">
             how the model works →
           </Link>

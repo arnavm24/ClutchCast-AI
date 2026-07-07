@@ -312,6 +312,9 @@ def main() -> None:
     for _, row in index.iterrows():
         game_id = row["game_id"]
         is_analyzed = game_id in analyzed
+        # Only analyzed games are browsable, so shipping the rest is dead weight.
+        if not is_analyzed:
+            continue
         playoff_round = int(row.get("playoff_round", 0) or 0)
         games_index.append({
             "id": game_id,

@@ -79,7 +79,9 @@ export default function WinProbChart({
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         className="w-full cursor-crosshair select-none"
+        style={{ touchAction: "pan-y" }}
         onPointerMove={handleMove}
+        onPointerDown={handleMove}
         onPointerLeave={() => setHoverIndex(null)}
       >
         <defs>
@@ -140,7 +142,7 @@ export default function WinProbChart({
         <span className="flex items-center gap-2">
           <span className="h-0.5 w-5 border-t border-dashed border-slate-400" /> 50/50
         </span>
-        <span className="ml-auto hidden sm:block">hover to scrub the game</span>
+        <span className="ml-auto">hover or drag to scrub the game</span>
       </div>
 
       <motion.div
@@ -165,7 +167,7 @@ export default function WinProbChart({
             <div className="min-w-0 flex-1 truncate text-sm text-muted">{hovered.play || "No play description"}</div>
           </>
         ) : (
-          <div className="text-sm text-muted">Hover the chart to relive any moment of the game.</div>
+          <div className="text-sm text-muted">Hover or drag across the chart to relive any moment of the game.</div>
         )}
       </motion.div>
     </div>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import Providers from "@/components/Providers";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -31,6 +32,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">
+        <Providers>
         <header className="sticky top-0 z-50 border-b border-line bg-[rgba(5,7,13,0.8)] backdrop-blur-xl">
           <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
             <Link href="/" className="flex items-center gap-3">
@@ -53,8 +55,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 px-5 pb-24">{children}</main>
         <footer className="border-t border-line py-8 text-center text-xs text-muted">
-          ClutchCast AI · win probabilities from a calibration-tested model · not affiliated with the NBA
+          ClutchCast AI · win probabilities from a model tested for honest percentages · not affiliated with the NBA
         </footer>
+        </Providers>
       </body>
     </html>
   );

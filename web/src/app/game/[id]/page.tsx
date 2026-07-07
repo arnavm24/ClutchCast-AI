@@ -48,7 +48,7 @@ export default async function GamePage({ params }: { params: Promise<{ id: strin
 
       <Reveal className="mt-12">
         <h2 className="mb-1 text-xl font-black tracking-tight">The story of the game</h2>
-        <p className="mb-5 text-sm text-muted">Win probability after every play. Hover to relive any moment.</p>
+        <p className="mb-5 text-sm text-muted">Win probability after every play. Hover or drag to relive any moment.</p>
         <div className="panel px-4 py-5 sm:px-6">
           <WinProbChart timeline={game.timeline} home={game.home} away={game.away} />
         </div>
