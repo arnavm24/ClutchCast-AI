@@ -66,9 +66,11 @@ def build_player_events(predictions: pd.DataFrame, home_team: str) -> pd.DataFra
     data["home_swing_pct"] = (data["wp_change"] * 100).round(2)
     data["abs_swing_pct"] = (data["abs_wp_change"] * 100).round(2)
     is_home = data["event_team"].astype(str).str.upper() == str(home_team).upper()
+    from ui.formatting import game_minutes_elapsed
+
     data["team_swing_pct"] = data["home_swing_pct"].where(is_home, -data["home_swing_pct"]).round(2)
     data["is_clutch"] = (data["period"] >= 4) & (data["seconds_remaining"] <= 300)
-    data["game_minutes_elapsed"] = ((48 * 60) - data["seconds_remaining"]) / 60
+    data["game_minutes_elapsed"] = game_minutes_elapsed(data["period"], data["seconds_remaining"])
     cols = [
         "period", "clock", "seconds_remaining", "game_minutes_elapsed", "home_score", "away_score",
         "event_player", "event_team", "event_description",

@@ -192,7 +192,11 @@ def build_moment_explanation(features: pd.DataFrame, predictions: pd.DataFrame, 
         "model_label": model_label,
         "context_text": " · ".join(context_bits),
         "momentum_text": momentum_text,
-        "game_minutes": float(((48 * 60) - seconds_remaining) / 60),
+        "game_minutes": float(
+            ((48 * 60) - seconds_remaining) / 60
+            if period <= 4
+            else 48 + (period - 5) * 5 + (300 - seconds_remaining) / 60
+        ),
         "headline": f"{home_prob:.1f}% home win probability at {moment}",
         "summary": f"{leader_text} with {format_nba_clock(pred_row.get('clock', ''))} left in {format_period(period)}. Biggest signal right now: {driver_summary.lower()}.",
         "drivers": drivers,

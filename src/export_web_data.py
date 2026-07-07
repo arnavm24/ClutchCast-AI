@@ -83,6 +83,15 @@ def fetch_game_dates(seasons: list[str]) -> pd.DataFrame:
     return dates
 
 
+def elapsed_minutes(period: int, seconds_remaining: float) -> float:
+    """Game time on a continuous axis. In overtime, seconds_remaining only
+    counts time left in the current 5-minute OT period, so OT maps to 48+."""
+    if period <= 4:
+        return (48 * 60 - seconds_remaining) / 60
+    completed_overtimes = period - 5
+    return 48 + completed_overtimes * 5 + (300 - seconds_remaining) / 60
+
+
 def format_clock(value) -> str:
     clock = str(value)
     if not clock.startswith("PT"):
@@ -157,7 +166,7 @@ def export_game(game_id: str, index_row: pd.Series, champion: dict, date: str | 
 
     timeline = [
         {
-            "t": round(float((48 * 60 - row["seconds_remaining"]) / 60), 2),
+            "t": round(elapsed_minutes(int(row["period"]), float(row["seconds_remaining"])), 2),
             "wp": round(float(row["home_win_prob_pct"]), 1),
             "hs": int(row["home_score"]),
             "as": int(row["away_score"]),

@@ -74,9 +74,18 @@ def best_row_text(df: pd.DataFrame, columns: list[str], fallback: str) -> str:
     return " · ".join(pieces) if pieces else fallback
 
 
+def game_minutes_elapsed(period: pd.Series, seconds_remaining: pd.Series) -> pd.Series:
+    """Continuous game clock in minutes. Overtime seconds_remaining only covers
+    the current 5-minute OT period, so OT events map to 48+ instead of folding
+    back into the fourth quarter."""
+    regulation = ((48 * 60) - seconds_remaining) / 60
+    overtime = 48 + (period - 5) * 5 + (300 - seconds_remaining) / 60
+    return regulation.where(period <= 4, overtime)
+
+
 def add_game_time_columns(df: pd.DataFrame) -> pd.DataFrame:
     output = df.copy()
-    output["game_minutes_elapsed"] = ((48 * 60) - output["seconds_remaining"]) / 60
+    output["game_minutes_elapsed"] = game_minutes_elapsed(output["period"], output["seconds_remaining"])
     output["Clock"] = output["clock"].apply(format_nba_clock)
     return output
 

@@ -92,7 +92,14 @@ def render(data: dict, predictions: pd.DataFrame, game_id: str, home_team: str, 
     moment_index = len(predictions) - 1
     if "why_moment_slider" in st.session_state:
         moment_index = min(int(st.session_state["why_moment_slider"]), len(predictions) - 1)
-        moment_minutes = float(((48 * 60) - predictions.iloc[moment_index]["seconds_remaining"]) / 60)
+        moment_row = predictions.iloc[moment_index]
+        moment_period = int(moment_row["period"])
+        moment_seconds = float(moment_row["seconds_remaining"])
+        moment_minutes = float(
+            ((48 * 60) - moment_seconds) / 60
+            if moment_period <= 4
+            else 48 + (moment_period - 5) * 5 + (300 - moment_seconds) / 60
+        )
     show_win_probability_chart(predictions, home_team, away_team, champion_view, chart_key="full_win_probability_chart", marker_minutes=moment_minutes)
     show_win_probability_story(data, predictions, home_team, away_team)
     st.divider()
